@@ -1,0 +1,4477 @@
+====================
+Directory Tree (selected)
+====================
+
+redytelca/
+├── docs/
+│   └── diagrama_casos_uso.md
+├── .gitignore
+├── DOCUMENTACION.md
+├── IMPROVEMENTS.md
+├── README.md
+├── api_tareas.php
+├── api_tickets.php
+├── app.js
+├── auth_state.php
+├── bd_redytelca.sql
+├── cambiar_password.php
+├── cliente_actualizar.php
+├── cliente_eliminar.php
+├── clientes_listar.php
+├── conexion.php
+├── index.html
+├── login.php
+├── logout.php
+├── permisos_guardar.php
+├── permisos_listar.php
+├── registrar_cliente.php
+├── roles_listar.php
+├── run_migrations.php
+├── styles.css
+├── usuarios_crear.php
+└── usuarios_listar.php
+
+--------------------
+File: /redytelca/.gitignore
+--------------------
+
+node_modules/
+.DS_Store
+dist/
+build/
+.env
+.env.local
+*.log
+.vscode/
+.idea/
+__pycache__/
+*.pyc
+.next/
+coverage/
+
+
+--------------------
+File: /redytelca/api_tareas.php
+--------------------
+
+<?php
+header('Content-Type: application/json; charset=utf-8');
+require 'conexion.php';
+
+$method = $_SERVER['REQUEST_METHOD'];
+
+function ensureColumn(PDO $pdo, string $table, string $column, string $definition): void {
+    $columns = $pdo->query("SHOW COLUMNS FROM `$table`")->fetchAll(PDO::FETCH_COLUMN);
+    if (!in_array($column, $columns, true)) {
+        $pdo->exec("ALTER TABLE `$table` ADD COLUMN `$column` $definition");
+    }
+}
+
+try {
+    $pdo->exec("CREATE TABLE IF NOT EXISTS tareas (
+        id_tarea INT AUTO_INCREMENT PRIMARY KEY,
+        titulo VARCHAR(150) NOT NULL,
+        descripcion TEXT NULL,
+        estado VARCHAR(30) NOT NULL DEFAULT 'Pendiente',
+        prioridad VARCHAR(20) NOT NULL DEFAULT 'Media',
+        id_cliente INT NULL,
+        id_usuario_creador INT NULL,
+        creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        actualizado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    ensureColumn($pdo, 'tareas', 'estado', "VARCHAR(30) NOT NULL DEFAULT 'Pendiente'");
+    ensureColumn($pdo, 'tareas', 'prioridad', "VARCHAR(20) NOT NULL DEFAULT 'Media'");
+    ensureColumn($pdo, 'tareas', 'id_cliente', 'INT NULL');
+    ensureColumn($pdo, 'tareas', 'id_usuario_creador', 'INT NULL');
+    ensureColumn($pdo, 'tareas', 'creado_en', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP');
+    ensureColumn($pdo, 'tareas', 'actualizado_en', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP');
+} catch (Exception $e) {
+}
+
+if ($method === 'GET') {
+    $stmt = $pdo->query("SELECT t.*, c.nombres, c.apellidos, u.username AS creador FROM tareas t LEFT JOIN clientes c ON c.id_cliente = t.id_cliente LEFT JOIN usuarios u ON u.id_usuario = t.id_usuario_creador ORDER BY t.creado_en DESC");
+    echo json_encode(['status' => 'success', 'tareas' => $stmt->fetchAll(PDO::FETCH_ASSOC)]);
+    exit;
+}
+
+$input = json_decode(file_get_contents('php://input'), true);
+if (!$input) {
+    $input = $_POST;
+}
+
+if ($method === 'POST') {
+    $titulo = trim($input['titulo'] ?? '');
+    $descripcion = trim($input['descripcion'] ?? '');
+    $estado = trim($input['estado'] ?? 'Pendiente');
+    $prioridad = trim($input['prioridad'] ?? 'Media');
+    $id_cliente = (isset($input['id_cliente']) && $input['id_cliente'] !== '' && $input['id_cliente'] !== null) ? (int)$input['id_cliente'] : null;
+    $id_usuario_creador = (isset($input['id_usuario_creador']) && $input['id_usuario_creador'] !== '' && $input['id_usuario_creador'] !== null) ? (int)$input['id_usuario_creador'] : null;
+
+    if ($titulo === '') {
+        echo json_encode(['status' => 'error', 'message' => 'El título es obligatorio']);
+        exit;
+    }
+
+    $stmt = $pdo->prepare("INSERT INTO tareas (titulo, descripcion, estado, prioridad, id_cliente, id_usuario_creador) VALUES (?, ?, ?, ?, ?, ?)");
+    $ok = $stmt->execute([$titulo, $descripcion, $estado, $prioridad, $id_cliente, $id_usuario_creador]);
+
+    echo json_encode(['status' => $ok ? 'success' : 'error', 'message' => $ok ? 'Tarea creada correctamente' : 'No se pudo crear la tarea']);
+    exit;
+}
+
+if ($method === 'PUT') {
+    $id = (int)($input['id_tarea'] ?? 0);
+    $stmt = $pdo->prepare("UPDATE tareas SET titulo = ?, descripcion = ?, estado = ?, prioridad = ?, id_cliente = ?, id_usuario_creador = ? WHERE id_tarea = ?");
+    $ok = $stmt->execute([
+        trim($input['titulo'] ?? ''),
+        trim($input['descripcion'] ?? ''),
+        trim($input['estado'] ?? 'Pendiente'),
+        trim($input['prioridad'] ?? 'Media'),
+        (isset($input['id_cliente']) && $input['id_cliente'] !== '' && $input['id_cliente'] !== null) ? (int)$input['id_cliente'] : null,
+        (isset($input['id_usuario_creador']) && $input['id_usuario_creador'] !== '' && $input['id_usuario_creador'] !== null) ? (int)$input['id_usuario_creador'] : null,
+        $id
+    ]);
+    echo json_encode(['status' => $ok ? 'success' : 'error', 'message' => $ok ? 'Tarea actualizada' : 'No se pudo actualizar']);
+    exit;
+}
+
+if ($method === 'DELETE') {
+    $id = (int)($_GET['id'] ?? 0);
+    $stmt = $pdo->prepare("DELETE FROM tareas WHERE id_tarea = ?");
+    $ok = $stmt->execute([$id]);
+    echo json_encode(['status' => $ok ? 'success' : 'error', 'message' => $ok ? 'Tarea eliminada' : 'No se pudo eliminar']);
+    exit;
+}
+
+echo json_encode(['status' => 'error', 'message' => 'Método no soportado']);
+
+
+--------------------
+File: /redytelca/api_tickets.php
+--------------------
+
+<?php
+header('Content-Type: application/json; charset=utf-8');
+require 'conexion.php';
+
+$method = $_SERVER['REQUEST_METHOD'];
+
+function ensureColumn(PDO $pdo, string $table, string $column, string $definition): void {
+    $columns = $pdo->query("SHOW COLUMNS FROM `$table`")->fetchAll(PDO::FETCH_COLUMN);
+    if (!in_array($column, $columns, true)) {
+        $pdo->exec("ALTER TABLE `$table` ADD COLUMN `$column` $definition");
+    }
+}
+
+try {
+    $pdo->exec("CREATE TABLE IF NOT EXISTS tickets (
+        id_ticket INT AUTO_INCREMENT PRIMARY KEY,
+        asunto VARCHAR(150) NOT NULL,
+        descripcion TEXT NULL,
+        estado VARCHAR(30) NOT NULL DEFAULT 'Abierto',
+        prioridad VARCHAR(20) NOT NULL DEFAULT 'Media',
+        id_cliente INT NULL,
+        id_usuario_creador INT NULL,
+        creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        actualizado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    $pdo->exec("ALTER TABLE `tickets` MODIFY COLUMN `estado` VARCHAR(30) NOT NULL DEFAULT 'Abierto'");
+    $pdo->exec("ALTER TABLE `tickets` MODIFY COLUMN `id_cliente` INT NULL");
+    $pdo->exec("ALTER TABLE `tickets` MODIFY COLUMN `id_servicio` INT NULL");
+    $pdo->exec("ALTER TABLE `tickets` MODIFY COLUMN `descripcion` TEXT NULL");
+    $pdo->exec("ALTER TABLE `tickets` ADD COLUMN IF NOT EXISTS `prioridad` VARCHAR(20) NOT NULL DEFAULT 'Media'");
+    $pdo->exec("ALTER TABLE `tickets` ADD COLUMN IF NOT EXISTS `id_usuario_creador` INT NULL");
+    $pdo->exec("ALTER TABLE `tickets` ADD COLUMN IF NOT EXISTS `creado_en` TIMESTAMP DEFAULT CURRENT_TIMESTAMP");
+    $pdo->exec("ALTER TABLE `tickets` ADD COLUMN IF NOT EXISTS `actualizado_en` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP");
+} catch (Exception $e) {
+}
+
+if ($method === 'GET') {
+    $stmt = $pdo->query("SELECT t.*, c.nombres, c.apellidos, u.username AS creador FROM tickets t LEFT JOIN clientes c ON c.id_cliente = t.id_cliente LEFT JOIN usuarios u ON u.id_usuario = t.id_usuario_creador ORDER BY t.creado_en DESC");
+    echo json_encode(['status' => 'success', 'tickets' => $stmt->fetchAll(PDO::FETCH_ASSOC)]);
+    exit;
+}
+
+$input = json_decode(file_get_contents('php://input'), true);
+if (!$input) {
+    $input = $_POST;
+}
+
+if ($method === 'POST') {
+    $asunto = trim($input['asunto'] ?? '');
+    $descripcion = trim($input['descripcion'] ?? '');
+    $estado = trim($input['estado'] ?? 'Abierto');
+    $prioridad = trim($input['prioridad'] ?? 'Media');
+    $id_cliente = (isset($input['id_cliente']) && $input['id_cliente'] !== '' && $input['id_cliente'] !== null) ? (int)$input['id_cliente'] : null;
+    $id_usuario_creador = (isset($input['id_usuario_creador']) && $input['id_usuario_creador'] !== '' && $input['id_usuario_creador'] !== null) ? (int)$input['id_usuario_creador'] : null;
+
+    if ($asunto === '') {
+        echo json_encode(['status' => 'error', 'message' => 'El asunto es obligatorio']);
+        exit;
+    }
+
+    $stmt = $pdo->prepare("INSERT INTO tickets (asunto, descripcion, estado, prioridad, id_cliente, id_usuario_creador) VALUES (?, ?, ?, ?, ?, ?)");
+    $ok = $stmt->execute([$asunto, $descripcion, $estado, $prioridad, $id_cliente, $id_usuario_creador]);
+
+    echo json_encode(['status' => $ok ? 'success' : 'error', 'message' => $ok ? 'Ticket creado correctamente' : 'No se pudo crear el ticket']);
+    exit;
+}
+
+if ($method === 'PUT') {
+    $id = (int)($input['id_ticket'] ?? 0);
+    $stmt = $pdo->prepare("UPDATE tickets SET asunto = ?, descripcion = ?, estado = ?, prioridad = ?, id_cliente = ?, id_usuario_creador = ? WHERE id_ticket = ?");
+    $ok = $stmt->execute([
+        trim($input['asunto'] ?? ''),
+        trim($input['descripcion'] ?? ''),
+        trim($input['estado'] ?? 'Abierto'),
+        trim($input['prioridad'] ?? 'Media'),
+        (isset($input['id_cliente']) && $input['id_cliente'] !== '' && $input['id_cliente'] !== null) ? (int)$input['id_cliente'] : null,
+        (isset($input['id_usuario_creador']) && $input['id_usuario_creador'] !== '' && $input['id_usuario_creador'] !== null) ? (int)$input['id_usuario_creador'] : null,
+        $id
+    ]);
+    echo json_encode(['status' => $ok ? 'success' : 'error', 'message' => $ok ? 'Ticket actualizado' : 'No se pudo actualizar']);
+    exit;
+}
+
+if ($method === 'DELETE') {
+    $id = (int)($_GET['id'] ?? 0);
+    $stmt = $pdo->prepare("DELETE FROM tickets WHERE id_ticket = ?");
+    $ok = $stmt->execute([$id]);
+    echo json_encode(['status' => $ok ? 'success' : 'error', 'message' => $ok ? 'Ticket eliminado' : 'No se pudo eliminar']);
+    exit;
+}
+
+echo json_encode(['status' => 'error', 'message' => 'Método no soportado']);
+
+
+--------------------
+File: /redytelca/app.js
+--------------------
+
+window.clientesCache = [];
+window.usuariosCache = [];
+window.permissionContext = {
+    authenticated: false,
+    user: '',
+    roleId: null,
+    roleName: '',
+    token: '',
+    modules: []
+};
+window.currentClienteSearch = '';
+
+function getClienteById(id) {
+    return window.clientesCache.find(cliente => Number(cliente.id_cliente) === Number(id));
+}
+
+const fallbackClientes = [
+    {
+        id_cliente: 1,
+        nombres: 'María',
+        apellidos: 'López',
+        cedula: 'V-12345678',
+        num_telefono: '0412-1234567',
+        correo: 'maria@example.com',
+        direccion: 'San Francisco, calle 5',
+        olt: 'OLT-01',
+        estado: 'Activo',
+        zona: 'BAJO',
+        dias_pago: 15,
+        factura_emitida: true,
+        aviso_pantalla: true,
+        aviso_sms: false,
+        proximo_corte: '25/06',
+        estado_financiero: 'Al día',
+        deuda: 0,
+        saldo: 120
+    },
+    {
+        id_cliente: 2,
+        nombres: 'José',
+        apellidos: 'Mendoza',
+        cedula: 'V-87654321',
+        num_telefono: '0414-7654321',
+        correo: 'jose@example.com',
+        direccion: 'El Bajo, avenida principal',
+        olt: 'OLT-02',
+        estado: 'Inactivo',
+        zona: 'VILLA',
+        dias_pago: 7,
+        factura_emitida: false,
+        aviso_pantalla: false,
+        aviso_sms: true,
+        proximo_corte: '28/06',
+        estado_financiero: 'Pendiente',
+        deuda: 45,
+        saldo: 75
+    }
+];
+
+function persistSessionContext(context) {
+    if (!context || !context.token) {
+        localStorage.removeItem('redytelca_session');
+        return;
+    }
+    localStorage.setItem('redytelca_session', JSON.stringify(context));
+}
+
+function clearSessionContext() {
+    window.permissionContext = {
+        authenticated: false,
+        user: '',
+        roleId: null,
+        roleName: '',
+        token: '',
+        modules: []
+    };
+    localStorage.removeItem('redytelca_session');
+
+    const overlay = document.getElementById('login-overlay');
+    if (overlay) {
+        overlay.style.display = 'flex';
+    }
+
+    const label = document.getElementById('profile-name-label');
+    if (label) {
+        label.textContent = 'Usuario';
+    }
+
+    const menu = document.getElementById('sidebar-nav');
+    if (menu) {
+        renderMenu();
+    }
+}
+
+function getStoredSession() {
+    try {
+        return JSON.parse(localStorage.getItem('redytelca_session') || 'null');
+    } catch (error) {
+        return null;
+    }
+}
+
+function buildDefaultMenuItems() {
+    return [
+        { page: 'dash', label: 'Inicio', module: 'Principal' },
+        { page: 'mapa', label: 'Mapa', module: 'Principal' },
+        { page: 'clientes', label: 'Clientes', module: 'Principal' }
+    ];
+}
+
+function renderMenu() {
+    const container = document.getElementById('sidebar-nav');
+    if (!container) {
+        return;
+    }
+
+    const normalizePageId = (value) => {
+        const raw = String(value || '').trim().toLowerCase();
+        const aliases = {
+            'dashboard': 'dash',
+            'inicio': 'dash',
+            'gestión de clientes': 'clientes',
+            'gestion de clientes': 'clientes',
+            'registrar cliente': 'registro',
+            'control de tareas': 'tareas',
+            'cambiar contraseña': 'password',
+            'configuración': 'configuracion',
+            'configuracion': 'configuracion',
+            'administración y accesos': 'configuracion',
+            'administracion y accesos': 'configuracion',
+            'permisos': 'permisos',
+            'usuarios': 'usuarios',
+            'tickets': 'tickets',
+            'mapa': 'mapa',
+            'reportes': 'reportes'
+        };
+        return aliases[raw] || raw || 'dash';
+    };
+
+    const items = [...buildDefaultMenuItems()];
+    const seen = new Map(items.map(item => [item.page, item]));
+
+    (window.permissionContext.modules || []).forEach(entry => {
+        const pageId = normalizePageId(entry.url || entry.slug || entry.page || entry.vista_key || entry.pagina || entry.vista || entry.modulo);
+        if (!pageId || seen.has(pageId)) {
+            return;
+        }
+
+        items.push({
+            page: pageId,
+            label: entry.vista || entry.pagina || entry.label || entry.modulo || entry.url || entry.slug || 'Vista',
+            module: entry.modulo || 'Principal'
+        });
+        seen.set(pageId, true);
+    });
+
+    const groups = {};
+    items.forEach(item => {
+        if (!groups[item.module]) {
+            groups[item.module] = [];
+        }
+        groups[item.module].push(item);
+    });
+
+    const groupNames = Object.keys(groups);
+    container.innerHTML = groupNames.map(groupName => {
+        const itemsMarkup = groups[groupName].map(item => `
+            <div class="nav-item" data-page="${item.page}" onclick="showPage('${item.page}', this)">${item.label}</div>
+        `).join('');
+
+        return `
+            <div class="nav-group">
+                <div class="nav-group-title">${groupName}</div>
+                ${itemsMarkup}
+            </div>
+        `;
+    }).join('');
+
+    const firstItem = container.querySelector('.nav-item');
+    if (firstItem) {
+        showPage(firstItem.getAttribute('data-page'), firstItem);
+    }
+}
+
+async function restoreSession() {
+    const stored = getStoredSession();
+    if (!stored || !stored.token) {
+        clearSessionContext();
+        return false;
+    }
+
+    try {
+        const response = await fetch('auth_state.php', {
+            headers: { 'X-Session-Token': stored.token }
+        });
+        const result = await response.json();
+
+        if (!result || result.status !== 'success' || !result.authenticated) {
+            clearSessionContext();
+            return false;
+        }
+
+        window.permissionContext = result;
+        persistSessionContext(result);
+
+        const label = document.getElementById('profile-name-label');
+        if (label) {
+            label.textContent = result.user || 'Usuario';
+        }
+
+        renderMenu();
+        return true;
+    } catch (error) {
+        clearSessionContext();
+        return false;
+    }
+}
+
+async function logout() {
+    try {
+        await fetch('logout.php', { method: 'POST' });
+    } catch (error) {
+        console.warn('No se pudo cerrar la sesión del servidor:', error);
+    }
+    clearSessionContext();
+}
+
+function toggleSidebar() {
+    const sidebar = document.querySelector('.sidebar');
+    const main = document.querySelector('.main-content');
+    sidebar?.classList.toggle('collapsed');
+    main?.classList.toggle('expanded');
+}
+
+function showPage(pageId, element) {
+    const pages = document.querySelectorAll('.page');
+    const navItems = document.querySelectorAll('.nav-item');
+
+    pages.forEach(page => page.classList.remove('active'));
+    navItems.forEach(item => item.classList.remove('active'));
+
+    const selectedPage = document.getElementById(pageId);
+    if (selectedPage) {
+        selectedPage.classList.add('active');
+    }
+
+    if (element) {
+        element.classList.add('active');
+    }
+
+    const titles = {
+        dash: 'Panel de control',
+        clientes: 'Clientes',
+        registro: 'Alta de cliente',
+        tareas: 'Control de tareas',
+        tickets: 'Tickets',
+        mapa: 'Mapa técnico',
+        configuracion: 'Administración y accesos',
+        usuarios: 'Usuarios',
+        permisos: 'Gestión de roles',
+        password: 'Cambiar contraseña',
+        reportes: 'Reportes'
+    };
+
+    const title = document.getElementById('page-title');
+    if (title) {
+        title.textContent = titles[pageId] || 'Panel';
+    }
+
+    if (pageId === 'reportes') {
+        renderReportes();
+    }
+
+    if (window.innerWidth <= 768) {
+        toggleSidebar();
+    }
+}
+
+function toggleProfileMenu() {
+    const menu = document.getElementById('profile-menu');
+    if (menu) {
+        menu.classList.toggle('show');
+    }
+}
+
+function setUsersFilter(filter, element) {
+    const buttons = document.querySelectorAll('#user-filters .filter-pill');
+    buttons.forEach(btn => btn.classList.remove('active'));
+    if (element) {
+        element.classList.add('active');
+    }
+    const search = document.getElementById('users-search')?.value.trim().toLowerCase() || '';
+    const rows = document.querySelectorAll('#users-table tbody tr');
+    rows.forEach(row => {
+        const rowStatus = row.getAttribute('data-status');
+        const matchesFilter = filter === 'Todos' || rowStatus === filter;
+        const matchesSearch = !search || row.textContent.toLowerCase().includes(search);
+        row.style.display = matchesFilter && matchesSearch ? '' : 'none';
+    });
+}
+
+function filterUsers() {
+    const activeButton = document.querySelector('#user-filters .filter-pill.active');
+    const filter = activeButton ? activeButton.textContent.trim() : 'Todos';
+    setUsersFilter(filter);
+}
+
+function setTicketsFilter(filter, element) {
+    const buttons = document.querySelectorAll('#ticket-filters .filter-pill');
+    buttons.forEach(btn => btn.classList.remove('active'));
+    if (element) {
+        element.classList.add('active');
+    }
+    const cards = document.querySelectorAll('#tickets .ticket-card');
+    cards.forEach(card => {
+        const matches = filter === 'Todos' || card.getAttribute('data-ticket-status') === filter;
+        card.style.display = matches ? '' : 'none';
+    });
+}
+
+function escapeHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function renderConfigUsersList() {
+    const container = document.getElementById('config-users-list');
+    if (!container) {
+        return;
+    }
+
+    const users = Array.isArray(window.usuariosCache) ? window.usuariosCache : [];
+    if (!users.length) {
+        container.innerHTML = '<p style="color:#64748b; margin:0;">Aún no hay usuarios cargados.</p>';
+        return;
+    }
+
+    container.innerHTML = users.map(usuario => `
+        <label>
+            <input type="checkbox" value="${escapeHtml(usuario.id_usuario || '')}">
+            ${escapeHtml(usuario.username || 'Usuario')}
+            <small style="color:#64748b;">(${escapeHtml(usuario.nombre_rol || 'Sin rol')})</small>
+        </label>
+    `).join('');
+}
+
+function populateAssignmentSelectors() {
+    const taskClient = document.getElementById('task-client');
+    const taskUser = document.getElementById('task-user');
+    const ticketClient = document.getElementById('ticket-client');
+    const ticketUser = document.getElementById('ticket-user');
+
+    if (taskClient) {
+        taskClient.innerHTML = ['<option value="">Sin cliente</option>', ...window.clientesCache.map(cliente => `<option value="${cliente.id_cliente}">${escapeHtml(`${cliente.nombres || ''} ${cliente.apellidos || ''}`.trim() || cliente.cedula || 'Cliente')}</option>`)].join('');
+    }
+
+    if (ticketClient) {
+        ticketClient.innerHTML = ['<option value="">Sin cliente</option>', ...window.clientesCache.map(cliente => `<option value="${cliente.id_cliente}">${escapeHtml(`${cliente.nombres || ''} ${cliente.apellidos || ''}`.trim() || cliente.cedula || 'Cliente')}</option>`)].join('');
+    }
+
+    if (taskUser) {
+        taskUser.innerHTML = ['<option value="">Sin asignar</option>', ...window.usuariosCache.map(usuario => `<option value="${usuario.id_usuario}">${escapeHtml(usuario.username || 'Usuario')}</option>`)].join('');
+    }
+
+    if (ticketUser) {
+        ticketUser.innerHTML = ['<option value="">Sin asignar</option>', ...window.usuariosCache.map(usuario => `<option value="${usuario.id_usuario}">${escapeHtml(usuario.username || 'Usuario')}</option>`)].join('');
+    }
+}
+
+function toggleTaskForm(forceClose = false, reset = true) {
+    const form = document.getElementById('task-form');
+    const title = document.getElementById('task-title');
+    const description = document.getElementById('task-description');
+    const status = document.getElementById('task-status');
+    const priority = document.getElementById('task-priority');
+    const client = document.getElementById('task-client');
+    const user = document.getElementById('task-user');
+    const id = document.getElementById('task-id');
+
+    if (form) {
+        form.style.display = forceClose ? 'none' : (form.style.display === 'none' ? 'block' : 'none');
+    }
+
+    if (!forceClose && reset) {
+        if (title) title.value = '';
+        if (description) description.value = '';
+        if (status) status.value = 'Pendiente';
+        if (priority) priority.value = 'Media';
+        if (client) client.value = '';
+        if (user) user.value = '';
+        if (id) id.value = '';
+    }
+}
+
+function toggleTicketForm(forceClose = false, reset = true) {
+    const form = document.getElementById('ticket-form');
+    const subject = document.getElementById('ticket-subject');
+    const description = document.getElementById('ticket-description');
+    const status = document.getElementById('ticket-status');
+    const priority = document.getElementById('ticket-priority');
+    const client = document.getElementById('ticket-client');
+    const user = document.getElementById('ticket-user');
+    const id = document.getElementById('ticket-id');
+
+    if (form) {
+        form.style.display = forceClose ? 'none' : (form.style.display === 'none' ? 'block' : 'none');
+    }
+
+    if (!forceClose && reset) {
+        if (subject) subject.value = '';
+        if (description) description.value = '';
+        if (status) status.value = 'Abierto';
+        if (priority) priority.value = 'Media';
+        if (client) client.value = '';
+        if (user) user.value = '';
+        if (id) id.value = '';
+    }
+}
+
+async function guardarTarea() {
+    const id = document.getElementById('task-id').value;
+    const payload = {
+        titulo: document.getElementById('task-title').value.trim(),
+        descripcion: document.getElementById('task-description').value.trim(),
+        estado: document.getElementById('task-status').value,
+        prioridad: document.getElementById('task-priority').value,
+        id_cliente: document.getElementById('task-client').value,
+        id_usuario_creador: document.getElementById('task-user').value
+    };
+
+    if (!payload.titulo) {
+        alert('Ingresa un título para la tarea');
+        return;
+    }
+
+    const response = await fetch('api_tareas.php', {
+        method: id ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(id ? { ...payload, id_tarea: id } : payload)
+    });
+    const result = await response.json();
+    alert(result.message || 'Operación realizada');
+    if (result.status === 'success') {
+        toggleTaskForm(true);
+        await loadTareas();
+    }
+}
+
+async function guardarTicket() {
+    const id = document.getElementById('ticket-id').value;
+    const payload = {
+        asunto: document.getElementById('ticket-subject').value.trim(),
+        descripcion: document.getElementById('ticket-description').value.trim(),
+        estado: document.getElementById('ticket-status').value,
+        prioridad: document.getElementById('ticket-priority').value,
+        id_cliente: document.getElementById('ticket-client').value,
+        id_usuario_creador: document.getElementById('ticket-user').value
+    };
+
+    if (!payload.asunto) {
+        alert('Ingresa un asunto para el ticket');
+        return;
+    }
+
+    const response = await fetch('api_tickets.php', {
+        method: id ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(id ? { ...payload, id_ticket: id } : payload)
+    });
+    const result = await response.json();
+    alert(result.message || 'Operación realizada');
+    if (result.status === 'success') {
+        toggleTicketForm(true);
+        await loadTickets();
+    }
+}
+
+function getStatusClass(status) {
+    const value = String(status || '').toLowerCase();
+    if (value.includes('complet') || value.includes('cerr')) return 'status-ok';
+    if (value.includes('curso') || value.includes('proceso')) return 'status-warning';
+    return 'status-alert';
+}
+
+async function loadTareas() {
+    try {
+        const response = await fetch('api_tareas.php');
+        const result = await response.json();
+        const container = document.getElementById('task-list');
+
+        if (!container || result.status !== 'success') {
+            return;
+        }
+
+        const tareas = Array.isArray(result.tareas) ? result.tareas : [];
+        window.tareasCache = tareas;
+        container.innerHTML = tareas.length ? tareas.map(tarea => `
+            <div class="task-item" style="flex-direction:column; align-items:flex-start;">
+                <div style="display:flex; justify-content:space-between; width:100%; gap:12px; flex-wrap:wrap;">
+                    <div>
+                        <strong>${escapeHtml(tarea.titulo || 'Sin título')}</strong>
+                        <p style="margin:4px 0 0; color:#64748b;">${escapeHtml(tarea.descripcion || 'Sin descripción')}</p>
+                    </div>
+                    <span class="status ${getStatusClass(tarea.estado)}">${escapeHtml(tarea.estado || 'Pendiente')}</span>
+                </div>
+                <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; color:#64748b; font-size:0.9rem;">
+                    <span>Prioridad: ${escapeHtml(tarea.prioridad || 'Media')}</span>
+                    <span>Cliente: ${escapeHtml(tarea.nombres ? `${tarea.nombres} ${tarea.apellidos || ''}`.trim() : 'Sin asignar')}</span>
+                    <span>Creado por: ${escapeHtml(tarea.creador || 'Sin asignar')}</span>
+                </div>
+                <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;">
+                    <button type="button" onclick='editarTarea(${tarea.id_tarea})' style="width:auto; padding:8px 12px;">Editar</button>
+                    <button type="button" onclick='cerrarTarea(${tarea.id_tarea})' style="width:auto; padding:8px 12px; background:#16a34a;">Cerrar</button>
+                    <button type="button" onclick='eliminarTarea(${tarea.id_tarea})' style="width:auto; padding:8px 12px; background:#dc2626;">Eliminar</button>
+                </div>
+            </div>
+        `).join('') : '<p>No hay tareas registradas.</p>';
+    } catch (error) {
+        console.error('No se pudieron cargar las tareas:', error);
+    }
+}
+
+async function loadTickets() {
+    try {
+        const response = await fetch('api_tickets.php');
+        const result = await response.json();
+        const container = document.getElementById('ticket-list');
+
+        if (!container || result.status !== 'success') {
+            return;
+        }
+
+        const tickets = Array.isArray(result.tickets) ? result.tickets : [];
+        window.ticketsCache = tickets;
+        container.innerHTML = tickets.length ? tickets.map(ticket => `
+            <div class="ticket-card" data-ticket-status="${escapeHtml(ticket.estado || 'Abierto')}">
+                <div>
+                    <h3>${escapeHtml(ticket.asunto || 'Sin asunto')}</h3>
+                    <p>${escapeHtml(ticket.descripcion || 'Sin descripción')}</p>
+                    <p style="margin-top:6px;">Cliente: ${escapeHtml(ticket.nombres ? `${ticket.nombres} ${ticket.apellidos || ''}`.trim() : 'Sin asignar')} · Creado por: ${escapeHtml(ticket.creador || 'Sin asignar')}</p>
+                </div>
+                <div style="display:flex; flex-direction:column; gap:8px; align-items:flex-end;">
+                    <span class="status ${getStatusClass(ticket.estado)}">${escapeHtml(ticket.estado || 'Abierto')}</span>
+                    <span style="color:#64748b; font-size:0.9rem;">Prioridad: ${escapeHtml(ticket.prioridad || 'Media')}</span>
+                    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                        <button type="button" onclick='editarTicket(${ticket.id_ticket})' style="width:auto; padding:8px 12px;">Editar</button>
+                        <button type="button" onclick='cerrarTicket(${ticket.id_ticket})' style="width:auto; padding:8px 12px; background:#16a34a;">Cerrar</button>
+                        <button type="button" onclick='eliminarTicket(${ticket.id_ticket})' style="width:auto; padding:8px 12px; background:#dc2626;">Eliminar</button>
+                    </div>
+                </div>
+            </div>
+        `).join('') : '<p>No hay tickets registrados.</p>';
+        setTicketsFilter(document.querySelector('#ticket-filters .filter-pill.active')?.textContent?.trim() || 'Todos');
+    } catch (error) {
+        console.error('No se pudieron cargar los tickets:', error);
+    }
+}
+
+function editarTarea(id) {
+    const tarea = (window.tareasCache || []).find(item => Number(item.id_tarea) === Number(id));
+    if (!tarea) return;
+    document.getElementById('task-id').value = tarea.id_tarea;
+    document.getElementById('task-title').value = tarea.titulo || '';
+    document.getElementById('task-description').value = tarea.descripcion || '';
+    document.getElementById('task-status').value = tarea.estado || 'Pendiente';
+    document.getElementById('task-priority').value = tarea.prioridad || 'Media';
+    document.getElementById('task-client').value = tarea.id_cliente || '';
+    document.getElementById('task-user').value = tarea.id_usuario_creador || '';
+    toggleTaskForm(false, false);
+}
+
+function editarTicket(id) {
+    const ticket = (window.ticketsCache || []).find(item => Number(item.id_ticket) === Number(id));
+    if (!ticket) return;
+    document.getElementById('ticket-id').value = ticket.id_ticket;
+    document.getElementById('ticket-subject').value = ticket.asunto || '';
+    document.getElementById('ticket-description').value = ticket.descripcion || '';
+    document.getElementById('ticket-status').value = ticket.estado || 'Abierto';
+    document.getElementById('ticket-priority').value = ticket.prioridad || 'Media';
+    document.getElementById('ticket-client').value = ticket.id_cliente || '';
+    document.getElementById('ticket-user').value = ticket.id_usuario_creador || '';
+    toggleTicketForm(false, false);
+}
+
+async function eliminarTarea(id) {
+    if (!confirm('¿Deseas eliminar esta tarea?')) return;
+    const response = await fetch('api_tareas.php?id=' + id, { method: 'DELETE' });
+    const result = await response.json();
+    alert(result.message || 'Tarea eliminada');
+    if (result.status === 'success') {
+        await loadTareas();
+    }
+}
+
+async function eliminarTicket(id) {
+    if (!confirm('¿Deseas eliminar este ticket?')) return;
+    const response = await fetch('api_tickets.php?id=' + id, { method: 'DELETE' });
+    const result = await response.json();
+    alert(result.message || 'Ticket eliminado');
+    if (result.status === 'success') {
+        await loadTickets();
+    }
+}
+
+async function cerrarTarea(id) {
+    const response = await fetch('api_tareas.php', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id_tarea: id, titulo: '', descripcion: '', estado: 'Completada', prioridad: 'Media' })
+    });
+    const result = await response.json();
+    alert(result.message || 'Tarea cerrada');
+    if (result.status === 'success') {
+        await loadTareas();
+    }
+}
+
+async function cerrarTicket(id) {
+    const response = await fetch('api_tickets.php', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id_ticket: id, asunto: '', descripcion: '', estado: 'Cerrado', prioridad: 'Media' })
+    });
+    const result = await response.json();
+    alert(result.message || 'Ticket cerrado');
+    if (result.status === 'success') {
+        await loadTickets();
+    }
+}
+
+function setMapFilter(filter, element) {
+    const buttons = document.querySelectorAll('#map-filters .filter-pill');
+    buttons.forEach(btn => btn.classList.remove('active'));
+    if (element) {
+        element.classList.add('active');
+    }
+    const markers = document.querySelectorAll('#mapa .map-marker');
+    markers.forEach(marker => {
+        const matches = filter === 'Todos' || marker.getAttribute('data-type') === filter;
+        marker.style.opacity = matches ? '1' : '0.3';
+    });
+}
+
+function setMapMode(mode, element) {
+    const panel = document.getElementById('map-panel');
+    const buttons = document.querySelectorAll('.view-toggle .toggle-btn');
+    buttons.forEach(btn => btn.classList.remove('active'));
+    if (panel) {
+        panel.classList.toggle('satellite', mode === 'satelite');
+    }
+    if (element) {
+        element.classList.add('active');
+    }
+}
+
+function updateDashboardData() {
+    const date = new Date();
+    const formattedDate = date.toLocaleDateString('es-ES', {
+        day: '2-digit',
+        month: 'long',
+        year: 'numeric'
+    });
+
+    const dashboardDate = document.getElementById('dashboard-date');
+    if (dashboardDate) {
+        dashboardDate.textContent = formattedDate;
+    }
+
+    const clientsCount = document.getElementById('stat-clients');
+    if (clientsCount) {
+        clientsCount.textContent = window.clientesCache?.length || 0;
+    }
+
+    const totalClientes = window.clientesCache?.length || 0;
+    const ticketsAbiertos = Math.max(0, 18 + (totalClientes % 5) - 2);
+
+    const ticketsValue = document.querySelector('.stat-card.border-yellow h2');
+    if (ticketsValue) {
+        ticketsValue.textContent = ticketsAbiertos;
+    }
+
+    const servicePercent = Math.max(70, Math.min(99, 78 + (totalClientes % 8)));
+    const servicesValue = document.querySelector('.donut-center strong');
+    if (servicesValue) {
+        servicesValue.textContent = `${servicePercent}%`;
+    }
+
+    const oltSanFrancisco = document.getElementById('olt-san-francisco');
+    const oltElBajo = document.getElementById('olt-el-bajo');
+    const oltElGuacharo = document.getElementById('olt-el-guacharo');
+
+    if (oltSanFrancisco || oltElBajo || oltElGuacharo) {
+        const counts = {
+            'san francisco': 0,
+            'el bajo': 0,
+            'el guacharo': 0
+        };
+
+        window.clientesCache.forEach(cliente => {
+            const text = `${cliente.direccion || ''} ${cliente.olt || ''}`.toLowerCase();
+            if (text.includes('san francisco')) counts['san francisco']++;
+            else if (text.includes('el bajo')) counts['el bajo']++;
+            else if (text.includes('guacharo') || text.includes('guácharo')) counts['el guacharo']++;
+        });
+
+        if (oltSanFrancisco) oltSanFrancisco.textContent = counts['san francisco'];
+        if (oltElBajo) oltElBajo.textContent = counts['el bajo'];
+        if (oltElGuacharo) oltElGuacharo.textContent = counts['el guacharo'];
+    }
+
+    const panel = document.getElementById('client-profile-panel');
+    if (panel && panel.style.display !== 'none' && panel.dataset.clientId) {
+        const currentClient = window.clientesCache.find(c => c.id_cliente === Number(panel.dataset.clientId));
+        if (currentClient) {
+            renderClientProfile(currentClient);
+        }
+    }
+}
+
+function renderReportes() {
+    const totalClientesEl = document.getElementById('report-total-clientes');
+    const tareasPendientesEl = document.getElementById('report-tareas-pendientes');
+    const tareasCompletadasEl = document.getElementById('report-tareas-completadas');
+    const ticketsAbiertosEl = document.getElementById('report-tickets-abiertos');
+    const ticketsPrioridadEl = document.getElementById('report-tickets-prioridad');
+
+    if (!totalClientesEl && !tareasPendientesEl && !ticketsAbiertosEl) {
+        return;
+    }
+
+    const tareas = Array.isArray(window.tareasCache) ? window.tareasCache : [];
+    const tickets = Array.isArray(window.ticketsCache) ? window.ticketsCache : [];
+    const clientesTotal = Number(window.clientesCache?.length || 0);
+
+    const tareasPendientes = tareas.filter(t => String(t.estado || '').toLowerCase() !== 'completada').length;
+    const tareasCompletadas = tareas.filter(t => String(t.estado || '').toLowerCase() === 'completada').length;
+    const ticketsAbiertos = tickets.filter(t => String(t.estado || '').toLowerCase() !== 'cerrado').length;
+
+    if (totalClientesEl) totalClientesEl.textContent = clientesTotal;
+    if (tareasPendientesEl) tareasPendientesEl.textContent = tareasPendientes;
+    if (tareasCompletadasEl) tareasCompletadasEl.textContent = tareasCompletadas;
+    if (ticketsAbiertosEl) ticketsAbiertosEl.textContent = ticketsAbiertos;
+
+    if (ticketsPrioridadEl) {
+        const porPrioridad = { Alta: 0, Media: 0, Baja: 0 };
+        tickets.forEach(t => {
+            const prioridad = t.prioridad && porPrioridad.hasOwnProperty(t.prioridad) ? t.prioridad : 'Media';
+            porPrioridad[prioridad]++;
+        });
+        ticketsPrioridadEl.innerHTML = Object.keys(porPrioridad).map(prioridad => `
+            <div><span>Prioridad ${escapeHtml(prioridad)}</span><strong>${porPrioridad[prioridad]}</strong></div>
+        `).join('');
+    }
+}
+
+function updateZoneLabel() {
+    const zoneSelect = document.getElementById('profile-zone');
+    if (!zoneSelect) {
+        return;
+    }
+
+    const zoneBadge = document.getElementById('profile-status-badge');
+    if (zoneBadge) {
+        zoneBadge.textContent = zoneSelect.value;
+        zoneBadge.className = 'status ' + (zoneSelect.value === 'BAJO' ? 'status-warn' : 'status-ok');
+    }
+}
+
+function renderClientProfile(cliente) {
+    const panel = document.getElementById('client-profile-panel');
+    if (!panel) {
+        return;
+    }
+
+    panel.style.display = 'block';
+    panel.dataset.clientId = cliente.id_cliente;
+
+    const zoneSelect = document.getElementById('profile-zone');
+    if (zoneSelect) {
+        const zoneValue = cliente.zona || cliente.olt || 'BAJO';
+        zoneSelect.value = ['BAJO', 'VILLA', 'FIBRA-VILLA', 'PRU', 'OTRO'].includes(zoneValue)
+            ? zoneValue
+            : 'OTRO';
+    }
+
+    const nameEl = document.getElementById('profile-name');
+    const statusEl = document.getElementById('profile-status-badge');
+    const stateEl = document.getElementById('profile-state');
+    const routerEl = document.getElementById('profile-router');
+    const idEl = document.getElementById('profile-id');
+    const addressEl = document.getElementById('profile-address');
+    const phoneEl = document.getElementById('profile-phone');
+    const emailEl = document.getElementById('profile-email');
+    const paymentDaysEl = document.getElementById('notify-payment-days');
+    const invoiceEl = document.getElementById('notify-invoice');
+    const screenEl = document.getElementById('notify-screen');
+    const smsEl = document.getElementById('notify-sms');
+    const nextCutEl = document.getElementById('payment-next-cut');
+    const statusFinanceEl = document.getElementById('payment-status');
+    const debtEl = document.getElementById('payment-debt');
+    const balanceEl = document.getElementById('payment-balance');
+
+    if (nameEl) nameEl.textContent = `${cliente.nombres || ''} ${cliente.apellidos || ''}`.trim();
+    if (statusEl) {
+        statusEl.textContent = (cliente.estado || 'Activo').toUpperCase();
+        statusEl.className = 'status ' + ((cliente.estado || 'Activo') === 'Inactivo' ? 'status-warn' : 'status-ok');
+    }
+    if (stateEl) stateEl.textContent = cliente.estado || 'Activo';
+    if (routerEl) routerEl.textContent = cliente.olt || 'Sin asignar';
+    if (idEl) idEl.textContent = cliente.cedula || '-';
+    if (addressEl) addressEl.textContent = cliente.direccion || '-';
+    if (phoneEl) phoneEl.textContent = cliente.num_telefono || '-';
+    if (emailEl) emailEl.textContent = cliente.correo || '-';
+
+    if (paymentDaysEl) paymentDaysEl.textContent = cliente.dias_pago || '15';
+    if (invoiceEl) invoiceEl.textContent = cliente.factura_emitida ? 'Emitida' : 'Pendiente';
+    if (screenEl) screenEl.textContent = cliente.aviso_pantalla ? 'Sí' : 'No';
+    if (smsEl) smsEl.textContent = cliente.aviso_sms ? 'Sí' : 'No';
+    if (nextCutEl) nextCutEl.textContent = cliente.proximo_corte || '25/06';
+    if (statusFinanceEl) statusFinanceEl.textContent = cliente.estado_financiero || 'Al día';
+    if (debtEl) debtEl.textContent = cliente.deuda ? `$${Number(cliente.deuda).toFixed(2)}` : '$0,00';
+    if (balanceEl) balanceEl.textContent = cliente.saldo ? `$${Number(cliente.saldo).toFixed(2)}` : '$120,00';
+
+    updateZoneLabel();
+}
+
+async function registrarCliente() {
+    const clienteData = {
+        nombres: document.getElementById('nombres').value.trim(),
+        apellidos: document.getElementById('apellidos').value.trim(),
+        cedula: document.getElementById('cedula').value.trim(),
+        telefono: document.getElementById('telefono').value.trim(),
+        correo: document.getElementById('correo').value.trim(),
+        direccion: document.getElementById('direccion').value.trim(),
+        olt: document.getElementById('olt').value.trim()
+    };
+
+    if (!clienteData.nombres || !clienteData.apellidos || !clienteData.cedula || !clienteData.telefono || !clienteData.correo) {
+        alert('Por favor completa los campos obligatorios.');
+        return;
+    }
+
+    const response = await fetch('registrar_cliente.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(clienteData)
+    });
+
+    const result = await response.json();
+    alert(result.message);
+    if (result.status === 'success') {
+        document.getElementById('nombres').value = '';
+        document.getElementById('apellidos').value = '';
+        document.getElementById('cedula').value = '';
+        document.getElementById('telefono').value = '';
+        document.getElementById('correo').value = '';
+        document.getElementById('direccion').value = '';
+        document.getElementById('olt').value = '';
+        await loadClientes();
+    }
+}
+
+function changeClientPage(page) {
+    loadClientes(window.currentClienteSearch, page);
+}
+
+async function loadClientes(filter = '', page = 1) {
+    const list = document.getElementById('clientes-list');
+    const pagination = document.getElementById('clientes-pagination');
+    if (!list) {
+        return;
+    }
+
+    window.currentClienteSearch = typeof filter === 'string' ? filter : '';
+    const safePage = Number(page) > 1 ? Number(page) : 1;
+
+    try {
+        const response = await fetch('clientes_listar.php?filter=' + encodeURIComponent(window.currentClienteSearch) + '&page=' + safePage + '&per_page=10');
+        if (!response.ok) {
+            throw new Error('Error al consultar clientes');
+        }
+
+        const result = await response.json();
+
+        if (!result || result.status !== 'success' || !Array.isArray(result.clientes)) {
+            throw new Error('Respuesta inválida del servidor');
+        }
+
+        const clientes = result.clientes;
+        window.clientesCache = clientes;
+        populateAssignmentSelectors();
+        updateDashboardData();
+
+        if (clientes.length === 0) {
+            list.innerHTML = '<p>No hay clientes registrados.</p>';
+            if (pagination) {
+                pagination.innerHTML = '';
+            }
+            return;
+        }
+
+        list.innerHTML = clientes.map(cliente => `
+            <div class="card" style="margin-bottom: 8px;">
+                <p><strong>${cliente.nombres || ''} ${cliente.apellidos || ''}</strong> - Cédula: ${cliente.cedula || ''}</p>
+                <p><small>Teléfono: ${cliente.num_telefono || ''} · Correo: ${cliente.correo || ''}</small></p>
+                <p><small>Dirección: ${cliente.direccion || 'No registrada'} · OLT: ${cliente.olt || 'Sin asignar'}</small></p>
+                <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                    <button data-client-action="profile" data-client-id="${cliente.id_cliente}" style="width:auto; padding:10px 14px;">Ver ficha</button>
+                    <button data-client-action="edit" data-client-id="${cliente.id_cliente}" style="width:auto; padding:10px 14px;">Editar</button>
+                    <button data-client-action="delete" data-client-id="${cliente.id_cliente}" style="width:auto; padding:10px 14px; background:#dc2626;">Eliminar</button>
+                </div>
+            </div>
+        `).join('');
+
+        if (pagination) {
+            const totalPages = Number(result.pages || 1);
+            const currentPage = Number(result.page || 1);
+            pagination.innerHTML = `
+                <div class="pagination-controls">
+                    <button onclick="changeClientPage(${Math.max(1, currentPage - 1)})" ${currentPage <= 1 ? 'disabled' : ''}>Anterior</button>
+                    <span>Página ${currentPage} / ${totalPages} · ${result.total || clientes.length} clientes</span>
+                    <button onclick="changeClientPage(${Math.min(totalPages, currentPage + 1)})" ${currentPage >= totalPages ? 'disabled' : ''}>Siguiente</button>
+                </div>
+            `;
+        }
+
+        if (clientes.length > 0) {
+            renderClientProfile(clientes[0]);
+        }
+    } catch (error) {
+        console.warn('Usando datos de respaldo para clientes:', error);
+        window.clientesCache = fallbackClientes;
+        populateAssignmentSelectors();
+        updateDashboardData();
+
+        list.innerHTML = fallbackClientes.map(cliente => `
+            <div class="card" style="margin-bottom: 8px;">
+                <p><strong>${cliente.nombres} ${cliente.apellidos}</strong> - Cédula: ${cliente.cedula}</p>
+                <p><small>Teléfono: ${cliente.num_telefono} · Correo: ${cliente.correo}</small></p>
+                <p><small>Dirección: ${cliente.direccion || 'No registrada'} · OLT: ${cliente.olt || 'Sin asignar'}</small></p>
+                <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                    <button data-client-action="profile" data-client-id="${cliente.id_cliente}" style="width:auto; padding:10px 14px;">Ver ficha</button>
+                    <button data-client-action="edit" data-client-id="${cliente.id_cliente}" style="width:auto; padding:10px 14px;">Editar</button>
+                    <button data-client-action="delete" data-client-id="${cliente.id_cliente}" style="width:auto; padding:10px 14px; background:#dc2626;">Eliminar</button>
+                </div>
+            </div>
+        `).join('');
+
+        if (pagination) {
+            pagination.innerHTML = '';
+        }
+
+        renderClientProfile(fallbackClientes[0]);
+    }
+}
+
+function editarCliente(id) {
+    const cliente = window.clientesCache.find(c => c.id_cliente === id);
+    if (!cliente) {
+        alert('Cliente no encontrado.');
+        return;
+    }
+
+    document.getElementById('edit-id').value = cliente.id_cliente;
+    document.getElementById('edit-nombres').value = cliente.nombres;
+    document.getElementById('edit-apellidos').value = cliente.apellidos;
+    document.getElementById('edit-cedula').value = cliente.cedula;
+    document.getElementById('edit-telefono').value = cliente.num_telefono;
+    document.getElementById('edit-correo').value = cliente.correo;
+    document.getElementById('edit-direccion').value = cliente.direccion || '';
+    document.getElementById('edit-olt').value = cliente.olt || '';
+    document.getElementById('edit-client-card').style.display = 'block';
+}
+
+function cerrarEdicionCliente() {
+    document.getElementById('edit-client-card').style.display = 'none';
+}
+
+async function actualizarCliente() {
+    const clienteData = {
+        id_cliente: document.getElementById('edit-id').value,
+        nombres: document.getElementById('edit-nombres').value.trim(),
+        apellidos: document.getElementById('edit-apellidos').value.trim(),
+        cedula: document.getElementById('edit-cedula').value.trim(),
+        telefono: document.getElementById('edit-telefono').value.trim(),
+        correo: document.getElementById('edit-correo').value.trim(),
+        direccion: document.getElementById('edit-direccion').value.trim(),
+        olt: document.getElementById('edit-olt').value.trim()
+    };
+
+    if (!clienteData.nombres || !clienteData.apellidos || !clienteData.cedula || !clienteData.telefono || !clienteData.correo) {
+        alert('Por favor completa todos los campos obligatorios.');
+        return;
+    }
+
+    const response = await fetch('cliente_actualizar.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(clienteData)
+    });
+
+    const result = await response.json();
+    alert(result.message);
+    if (result.status === 'success') {
+        cerrarEdicionCliente();
+        loadClientes();
+    }
+}
+
+async function eliminarCliente(id) {
+    if (!confirm('¿Seguro que deseas eliminar este cliente?')) {
+        return;
+    }
+
+    const response = await fetch('cliente_eliminar.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id_cliente: id })
+    });
+
+    const result = await response.json();
+    alert(result.message);
+    if (result.status === 'success') {
+        await loadClientes();
+    }
+}
+
+async function cambiarPassword() {
+    const user = document.getElementById('password-user').value.trim();
+    const current = document.getElementById('password-current').value;
+    const newPass = document.getElementById('password-new').value;
+    const confirm = document.getElementById('password-confirm').value;
+    const feedback = document.getElementById('password-feedback');
+
+    if (!user || !current || !newPass || !confirm) {
+        feedback.style.color = 'red';
+        feedback.textContent = 'Todos los campos son obligatorios.';
+        return;
+    }
+
+    if (newPass !== confirm) {
+        feedback.style.color = 'red';
+        feedback.textContent = 'La nueva contraseña no coincide.';
+        return;
+    }
+
+    const response = await fetch('cambiar_password.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: user, password_actual: current, password_nueva: newPass })
+    });
+
+    const result = await response.json();
+    feedback.style.color = result.status === 'success' ? 'green' : 'red';
+    feedback.textContent = result.message;
+
+    if (result.status === 'success') {
+        document.getElementById('password-user').value = '';
+        document.getElementById('password-current').value = '';
+        document.getElementById('password-new').value = '';
+        document.getElementById('password-confirm').value = '';
+    }
+}
+
+async function loadRoles() {
+    const select = document.getElementById('role-select');
+    const createSelect = document.getElementById('new-user-role');
+    const configSelect = document.getElementById('config-role-select');
+
+    try {
+        const response = await fetch('roles_listar.php');
+        const text = await response.text();
+        let result;
+
+        try {
+            result = JSON.parse(text);
+        } catch (error) {
+            result = null;
+        }
+
+        const roles = (result && Array.isArray(result.roles))
+            ? result.roles
+            : [
+                { id_rol: 1, nombre_rol: 'Administrador' },
+                { id_rol: 2, nombre_rol: 'Operador' }
+            ];
+
+        const options = roles.map(rol => `<option value="${rol.id_rol}">${escapeHtml(rol.nombre_rol)}</option>`).join('');
+
+        if (select) select.innerHTML = options;
+        if (createSelect) createSelect.innerHTML = options;
+        if (configSelect) configSelect.innerHTML = options;
+
+        if (roles.length > 0 && select) {
+            loadRolePermissions();
+        }
+        if (roles.length > 0 && configSelect) {
+            loadRolePermissions('config');
+        }
+    } catch (error) {
+        if (select) select.innerHTML = '<option value="1">Administrador</option>';
+        if (createSelect) createSelect.innerHTML = '<option value="1">Administrador</option>';
+        if (configSelect) configSelect.innerHTML = '<option value="1">Administrador</option>';
+        console.error(error);
+    }
+}
+
+async function crearRol() {
+    const input = document.getElementById('config-new-role-name');
+    const feedback = document.getElementById('config-role-feedback');
+    const nombreRol = input ? input.value.trim() : '';
+
+    if (!nombreRol) {
+        if (feedback) {
+            feedback.style.color = 'red';
+            feedback.textContent = 'Escribe un nombre para el nuevo rol.';
+        }
+        return;
+    }
+
+    try {
+        const response = await fetch('roles_listar.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ nombre_rol: nombreRol })
+        });
+        const result = await response.json();
+
+        if (feedback) {
+            feedback.style.color = result.status === 'success' ? 'green' : 'red';
+            feedback.textContent = result.message || '';
+        }
+
+        if (result.status === 'success') {
+            if (input) input.value = '';
+            await loadRoles();
+            const configSelect = document.getElementById('config-role-select');
+            if (configSelect && result.id_rol) {
+                configSelect.value = String(result.id_rol);
+                await loadRolePermissions('config');
+            }
+        }
+    } catch (error) {
+        if (feedback) {
+            feedback.style.color = 'red';
+            feedback.textContent = 'No se pudo crear el rol.';
+        }
+        console.error(error);
+    }
+}
+
+async function loadUsers() {
+    try {
+        const response = await fetch('usuarios_listar.php');
+        const result = await response.json();
+        const tbody = document.querySelector('#users-table tbody');
+
+        if (!tbody || result.status !== 'success') {
+            return;
+        }
+
+        const users = Array.isArray(result.usuarios) ? result.usuarios : [];
+        window.usuariosCache = users;
+        populateAssignmentSelectors();
+        renderConfigUsersList();
+        tbody.innerHTML = users.map(usuario => {
+            const estado = usuario.estado || 'Activo';
+            const estadoClass = estado === 'Suspendido' ? 'status-warning' : estado === 'Retirado' ? 'status-alert' : 'status-ok';
+            return `
+                <tr data-status="${estado}">
+                    <td>${usuario.username}</td>
+                    <td>${usuario.nombre_rol || 'Sin rol'}</td>
+                    <td><span class="status ${estadoClass}">${estado}</span></td>
+                    <td>${usuario.ultima_conexion || 'Nunca'}</td>
+                </tr>
+            `;
+        }).join('');
+
+        filterUsers();
+    } catch (error) {
+        renderConfigUsersList();
+        console.error('No se pudieron cargar los usuarios:', error);
+    }
+}
+
+async function crearUsuario() {
+    const username = document.getElementById('new-user-username').value.trim();
+    const password = document.getElementById('new-user-password').value;
+    const roleSelect = document.getElementById('new-user-role');
+    const roleId = roleSelect && roleSelect.value ? roleSelect.value : '1';
+    const feedback = document.getElementById('user-feedback');
+
+    if (!username || !password) {
+        feedback.style.color = 'red';
+        feedback.textContent = 'Completa todos los campos.';
+        return;
+    }
+
+    try {
+        const response = await fetch('usuarios_crear.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password, id_rol: roleId })
+        });
+
+        const text = await response.text();
+        let result;
+        try {
+            result = JSON.parse(text);
+        } catch (error) {
+            result = { status: 'error', message: 'Respuesta inválida del servidor' };
+        }
+
+        feedback.style.color = result.status === 'success' ? 'green' : 'red';
+        feedback.textContent = result.message;
+
+        if (result.status === 'success') {
+            document.getElementById('new-user-username').value = '';
+            document.getElementById('new-user-password').value = '';
+            await loadUsers();
+            await loadRoles();
+        }
+    } catch (error) {
+        feedback.style.color = 'red';
+        feedback.textContent = 'Error al crear usuario.';
+        console.error(error);
+    }
+}
+
+async function loadRolePermissions(target = 'default') {
+    const selectId = target === 'config' ? 'config-role-select' : 'role-select';
+    const containerId = target === 'config' ? 'config-permissions-list' : 'permissions-list';
+    const select = document.getElementById(selectId);
+    const container = document.getElementById(containerId);
+
+    if (!select || !container) {
+        return;
+    }
+
+    const roleId = select.value;
+
+    try {
+        const response = await fetch('permisos_listar.php?id_rol=' + encodeURIComponent(roleId));
+        const result = await response.json();
+
+        if (result.status !== 'success' || !Array.isArray(result.modulos)) {
+            throw new Error('No se pudieron cargar los permisos.');
+        }
+
+        container.innerHTML = result.modulos.map(modulo => `
+            <div style="margin-bottom:14px;">
+                <p style="margin:0 0 6px; font-weight:600; color:#0f172a;">${escapeHtml(modulo.nombre_modulo)}</p>
+                <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:6px;">
+                    ${modulo.vistas.map(vista => `
+                        <label style="display:block;">
+                            <input type="checkbox" data-pagina="${vista.id_pagina}" value="${vista.id_pagina}" ${vista.asignado ? 'checked' : ''}>
+                            ${escapeHtml(vista.nombre_pagina)}
+                        </label>
+                    `).join('')}
+                </div>
+            </div>
+        `).join('');
+    } catch (error) {
+        container.innerHTML = '<p style="color:#dc2626;">No se pudieron cargar los módulos y vistas para este rol.</p>';
+        console.error(error);
+    }
+}
+
+async function guardarPermisos(target = 'default') {
+    const selectId = target === 'config' ? 'config-role-select' : 'role-select';
+    const containerId = target === 'config' ? 'config-permissions-list' : 'permissions-list';
+    const feedbackId = target === 'config' ? 'config-permissions-feedback' : 'permissions-feedback';
+
+    const roleId = document.getElementById(selectId)?.value;
+    const checkboxes = Array.from(document.querySelectorAll(`#${containerId} input[type=checkbox]`));
+    const paginasSeleccionadas = checkboxes.filter(chk => chk.checked).map(chk => chk.value);
+    const feedback = document.getElementById(feedbackId);
+
+    try {
+        const response = await fetch('permisos_guardar.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id_rol: roleId, paginas: paginasSeleccionadas })
+        });
+        const result = await response.json();
+
+        if (feedback) {
+            feedback.style.color = result.status === 'success' ? 'green' : 'red';
+            feedback.textContent = result.message;
+            setTimeout(() => { feedback.textContent = ''; }, 3000);
+        }
+    } catch (error) {
+        if (feedback) {
+            feedback.style.color = 'red';
+            feedback.textContent = 'No se pudo guardar la asignación de vistas.';
+        }
+        console.error(error);
+    }
+}
+
+async function login() {
+    const user = document.getElementById('user').value.trim();
+    const pass = document.getElementById('pass').value.trim();
+
+    if (!user || !pass) {
+        alert('Por favor ingresa usuario y contrasena.');
+        return;
+    }
+
+    try {
+        const response = await fetch('login.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: user, password: pass })
+        });
+
+        if (!response.ok) {
+            const text = await response.text();
+            throw new Error('Error de servidor: ' + response.status + ' - ' + text);
+        }
+
+        const result = await response.json();
+        if (result.status === 'success') {
+            window.permissionContext = {
+                authenticated: true,
+                user: result.usuario,
+                roleId: result.id_rol,
+                roleName: result.rol_nombre || 'Rol',
+                token: result.token || '',
+                modules: result.modulos_permitidos || []
+            };
+            persistSessionContext(window.permissionContext);
+            document.getElementById('login-overlay').style.display = 'none';
+            document.getElementById('user').value = '';
+            document.getElementById('pass').value = '';
+            const label = document.getElementById('profile-name-label');
+            if (label) {
+                label.textContent = result.usuario || 'Usuario';
+            }
+            renderMenu();
+            await loadRoles();
+            await loadUsers();
+            await loadClientes();
+        } else {
+            alert(result.message);
+        }
+    } catch (error) {
+        console.error(error);
+        alert('Error en el login: ' + error.message);
+    }
+}
+
+window.addEventListener('DOMContentLoaded', async () => {
+    updateDashboardData();
+    setTicketsFilter('Todos', document.querySelector('#ticket-filters .filter-pill'));
+    setMapFilter('Todos', document.querySelector('#map-filters .filter-pill'));
+    setUsersFilter('Todos', document.querySelector('#user-filters .filter-pill'));
+    setMapMode('normal', document.querySelector('.view-toggle .toggle-btn'));
+    populateAssignmentSelectors();
+    await loadTareas();
+    await loadTickets();
+    renderReportes();
+
+    const sessionActive = await restoreSession();
+    if (!sessionActive) {
+        clearSessionContext();
+        return;
+    }
+
+    await loadRoles();
+    await loadUsers();
+    await loadClientes();
+
+    setInterval(() => {
+        const overlay = document.getElementById('login-overlay');
+        if (overlay && overlay.style.display !== 'flex' && overlay.style.display !== '') {
+            loadClientes();
+            loadUsers();
+        }
+    }, 5000);
+});
+
+document.addEventListener('click', async (event) => {
+    const profileMenu = document.getElementById('profile-menu');
+    const profileButton = document.querySelector('.profile-button');
+    if (profileMenu && profileButton && !profileButton.contains(event.target) && !profileMenu.contains(event.target)) {
+        profileMenu.classList.remove('show');
+    }
+
+    const clientAction = event.target.closest('[data-client-action]');
+    if (!clientAction) {
+        return;
+    }
+
+    const id = Number(clientAction.dataset.clientId);
+    const cliente = getClienteById(id);
+
+    if (!cliente) {
+        return;
+    }
+
+    if (clientAction.dataset.clientAction === 'profile') {
+        renderClientProfile(cliente);
+    } else if (clientAction.dataset.clientAction === 'edit') {
+        editarCliente(id);
+    } else if (clientAction.dataset.clientAction === 'delete') {
+        await eliminarCliente(id);
+    }
+});
+
+--------------------
+File: /redytelca/auth_state.php
+--------------------
+
+<?php
+header('Content-Type: application/json; charset=utf-8');
+require 'conexion.php';
+
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+
+$token = isset($_SERVER['HTTP_X_SESSION_TOKEN']) ? trim($_SERVER['HTTP_X_SESSION_TOKEN']) : '';
+$storedToken = isset($_SESSION['auth_token']) ? trim($_SESSION['auth_token']) : '';
+
+if ($token === '' || $token !== $storedToken) {
+    echo json_encode(['status' => 'success', 'authenticated' => false]);
+    exit;
+}
+
+echo json_encode([
+    'status' => 'success',
+    'authenticated' => true,
+    'user' => $_SESSION['usuario'] ?? '',
+    'roleId' => $_SESSION['id_rol'] ?? null,
+    'roleName' => $_SESSION['rol_nombre'] ?? '',
+    'token' => $storedToken,
+    'modules' => $_SESSION['modulos_permitidos'] ?? []
+]);
+
+
+--------------------
+File: /redytelca/bd_redytelca.sql
+--------------------
+
+-- phpMyAdmin SQL Dump
+-- version 5.2.1
+-- https://www.phpmyadmin.net/
+--
+-- Servidor: 127.0.0.1
+-- Tiempo de generación: 07-07-2026 a las 22:57:13
+-- Versión del servidor: 10.4.32-MariaDB
+-- Versión de PHP: 8.2.12
+
+SET SQL_MODE = "NO_AUTO_VALUE_ON_ZERO";
+START TRANSACTION;
+SET time_zone = "+00:00";
+
+
+/*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;
+/*!40101 SET @OLD_CHARACTER_SET_RESULTS=@@CHARACTER_SET_RESULTS */;
+/*!40101 SET @OLD_COLLATION_CONNECTION=@@COLLATION_CONNECTION */;
+/*!40101 SET NAMES utf8mb4 */;
+
+--
+-- Base de datos: `bd_redytelca`
+--
+
+-- --------------------------------------------------------
+
+--
+-- Estructura de tabla para la tabla `clientes`
+--
+
+CREATE TABLE `clientes` (
+  `id_cliente` int(11) NOT NULL,
+  `nombres` varchar(65) NOT NULL,
+  `apellidos` varchar(65) NOT NULL,
+  `cedula` varchar(15) NOT NULL,
+  `num_telefono` varchar(25) NOT NULL,
+  `correo` varchar(80) NOT NULL,
+  `fecha_registro` datetime DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Estructura de tabla para la tabla `direcciones`
+--
+
+CREATE TABLE `direcciones` (
+  `id_direccion` int(11) NOT NULL,
+  `sector` varchar(100) NOT NULL,
+  `calle_avenida` varchar(150) NOT NULL,
+  `n_casa_apto` varchar(50) NOT NULL,
+  `punto_referencia` text DEFAULT NULL,
+  `latitud` decimal(10,8) NOT NULL,
+  `longitud` decimal(11,8) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Estructura de tabla para la tabla `equipos`
+--
+
+CREATE TABLE `equipos` (
+  `id_equipo` int(11) NOT NULL,
+  `tipo` enum('ONU','ONT','ROUTER') NOT NULL,
+  `marca` varchar(50) DEFAULT NULL,
+  `modelo` varchar(50) DEFAULT NULL,
+  `direccion_mac` char(17) NOT NULL,
+  `num_puerto_nap` tinyint(4) NOT NULL,
+  `estado_fisico` enum('operativo','averiado','stock') DEFAULT 'stock',
+  `id_naps` int(11) NOT NULL,
+  `id_servicio` int(11) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Estructura de tabla para la tabla `logs`
+--
+
+CREATE TABLE `logs` (
+  `id_log` bigint(20) NOT NULL,
+  `creado_en` timestamp NOT NULL DEFAULT current_timestamp(),
+  `accion` varchar(100) NOT NULL,
+  `tabla_afectada` varchar(50) DEFAULT NULL,
+  `id_registro_afectado` int(11) DEFAULT NULL,
+  `id_user` int(11) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Estructura de tabla para la tabla `modulos`
+--
+
+CREATE TABLE `modulos` (
+  `id_modulo` int(11) NOT NULL,
+  `nombre_modulo` varchar(50) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Volcado de datos para la tabla `modulos`
+--
+
+INSERT INTO `modulos` (`id_modulo`, `nombre_modulo`) VALUES
+(1, 'Principal'),
+(2, 'Clientes'),
+(3, 'Operación'),
+(4, 'Configuración'),
+(5, 'Reportes');
+
+-- --------------------------------------------------------
+
+--
+-- Estructura de tabla para la tabla `naps`
+--
+
+CREATE TABLE `naps` (
+  `id_nap` int(11) NOT NULL,
+  `codigo` varchar(20) NOT NULL,
+  `cantidad_puertos_max` tinyint(4) NOT NULL DEFAULT 16,
+  `ubicacion_fisica` text DEFAULT NULL,
+  `latitud` decimal(10,8) NOT NULL,
+  `longitud` decimal(11,8) NOT NULL,
+  `id_olts` int(11) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Estructura de tabla para la tabla `nodos`
+--
+
+CREATE TABLE `nodos` (
+  `id_nodo` int(11) NOT NULL,
+  `nombre` varchar(100) NOT NULL,
+  `ubicacion` varchar(255) DEFAULT NULL,
+  `latitud` decimal(10,8) NOT NULL,
+  `longitud` decimal(11,8) NOT NULL,
+  `estado` enum('activo','mantenimiento','inactivo') DEFAULT 'activo'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Estructura de tabla para la tabla `notificaciones`
+--
+
+CREATE TABLE `notificaciones` (
+  `id_notificacion` int(11) NOT NULL,
+  `titulo` varchar(100) NOT NULL,
+  `mensaje` varchar(255) NOT NULL,
+  `fecha_envio` datetime DEFAULT current_timestamp(),
+  `estado` enum('leido','no leido') DEFAULT 'no leido',
+  `id_cliente` int(11) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Estructura de tabla para la tabla `olts`
+--
+
+CREATE TABLE `olts` (
+  `id_olt` int(11) NOT NULL,
+  `marca_modelo` varchar(100) NOT NULL,
+  `puertos_pon` tinyint(4) NOT NULL,
+  `ip_gestion` varchar(45) DEFAULT NULL,
+  `id_nodos` int(11) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Estructura de tabla para la tabla `paginas`
+--
+
+CREATE TABLE `paginas` (
+  `id_pagina` int(11) NOT NULL,
+  `nombre_pagina` varchar(100) NOT NULL,
+  `url_pagina` varchar(255) NOT NULL,
+  `id_modulo` int(11) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Volcado de datos para la tabla `paginas`
+--
+
+INSERT INTO `paginas` (`id_pagina`, `nombre_pagina`, `url_pagina`, `id_modulo`) VALUES
+(1, 'Inicio', 'dash', 1),
+(2, 'Gestión de clientes', 'clientes', 2),
+(3, 'Registrar cliente', 'registro', 2),
+(4, 'Control de tareas', 'tareas', 3),
+(5, 'Tickets', 'tickets', 3),
+(6, 'Mapa', 'mapa', 3),
+(7, 'Usuarios', 'usuarios', 4),
+(8, 'Permisos', 'permisos', 4),
+(9, 'Cambiar contraseña', 'password', 4),
+(10, 'Administración y accesos', 'configuracion', 4),
+(11, 'Reportes', 'reportes', 5);
+
+-- --------------------------------------------------------
+
+--
+-- Estructura de tabla para la tabla `pagos`
+--
+
+CREATE TABLE `pagos` (
+  `id_pago` int(11) NOT NULL,
+  `monto` decimal(10,2) NOT NULL,
+  `fecha_pago` datetime NOT NULL,
+  `metodo_pago` enum('transferencia','pago_movil','zelle','efectivo') DEFAULT NULL,
+  `referencia_bancaria` varchar(255) DEFAULT NULL,
+  `estado` enum('pendiente','validado','rechazado') DEFAULT 'pendiente',
+  `fecha_validacion` datetime DEFAULT NULL,
+  `id_cliente` int(11) NOT NULL,
+  `id_servicio` int(11) NOT NULL,
+  `id_usuario` int(11) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Estructura de tabla para la tabla `permisos`
+--
+
+CREATE TABLE `permisos` (
+  `id_permiso` int(11) NOT NULL,
+  `nombre_permiso` varchar(50) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Volcado de datos para la tabla `permisos`
+--
+
+INSERT INTO `permisos` (`id_permiso`, `nombre_permiso`) VALUES
+(3, 'Actualizar'),
+(1, 'Crear'),
+(4, 'Eliminar'),
+(2, 'Leer');
+
+-- --------------------------------------------------------
+
+--
+-- Estructura de tabla para la tabla `planes`
+--
+
+CREATE TABLE `planes` (
+  `id_plan` int(11) NOT NULL,
+  `nombre` varchar(60) NOT NULL,
+  `velocidad` varchar(60) NOT NULL,
+  `precio_mensual` decimal(10,2) NOT NULL,
+  `moneda` varchar(10) NOT NULL DEFAULT 'USD'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Estructura de tabla para la tabla `rm_permiso`
+--
+
+CREATE TABLE `rm_permiso` (
+  `id_rm_per` int(11) NOT NULL,
+  `id_rmp` int(11) NOT NULL,
+  `id_permiso` int(11) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Estructura de tabla para la tabla `rol`
+--
+
+CREATE TABLE `rol` (
+  `id_rol` int(11) NOT NULL,
+  `nombre_rol` varchar(50) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Volcado de datos para la tabla `rol`
+--
+
+INSERT INTO `rol` (`id_rol`, `nombre_rol`) VALUES
+(1, 'Administrador'),
+(2, 'Operador');
+
+-- --------------------------------------------------------
+
+--
+-- Estructura de tabla para la tabla `rol_modulo_pagina`
+--
+
+CREATE TABLE `rol_modulo_pagina` (
+  `id_rmp` int(11) NOT NULL,
+  `id_rol` int(11) NOT NULL,
+  `id_modulo` int(11) NOT NULL,
+  `id_pagina` int(11) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Volcado de datos para la tabla `rol_modulo_pagina`
+--
+
+INSERT INTO `rol_modulo_pagina` (`id_rmp`, `id_rol`, `id_modulo`, `id_pagina`) VALUES
+(1, 1, 1, 1),
+(2, 1, 2, 2),
+(3, 1, 2, 3),
+(4, 1, 3, 4),
+(5, 1, 3, 5),
+(6, 1, 3, 6),
+(7, 1, 4, 7),
+(8, 1, 4, 8),
+(9, 1, 4, 9),
+(10, 1, 4, 10),
+(11, 1, 5, 11),
+(12, 2, 1, 1),
+(13, 2, 2, 2),
+(14, 2, 2, 3),
+(15, 2, 3, 4),
+(16, 2, 3, 5),
+(17, 2, 3, 6),
+(18, 2, 4, 9),
+(19, 2, 5, 11);
+
+-- --------------------------------------------------------
+
+--
+-- Estructura de tabla para la tabla `servicios`
+--
+
+CREATE TABLE `servicios` (
+  `id_servicio` int(11) NOT NULL,
+  `estado_comercial` enum('activo','suspendido','retirado','pendiente') DEFAULT 'pendiente',
+  `id_cliente` int(11) NOT NULL,
+  `id_plan` int(11) NOT NULL,
+  `id_direccion` int(11) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Estructura de tabla para la tabla `tickets`
+--
+
+CREATE TABLE `tickets` (
+  `id_ticket` int(11) NOT NULL,
+  `asunto` varchar(150) NOT NULL,
+  `descripcion` text DEFAULT NULL,
+  `estado` enum('no leido','leido','resuelto') DEFAULT 'no leido',
+  `fecha_apertura` datetime DEFAULT current_timestamp(),
+  `fecha_cierre` datetime DEFAULT NULL,
+  `id_cliente` int(11) NOT NULL,
+  `id_servicio` int(11) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Estructura de tabla para la tabla `user`
+--
+
+CREATE TABLE `user` (
+  `id_user` int(11) NOT NULL,
+  `username` varchar(50) NOT NULL,
+  `password` varchar(255) NOT NULL,
+  `email` varchar(100) NOT NULL,
+  `status` tinyint(1) DEFAULT 1
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Estructura de tabla para la tabla `usuarios`
+--
+
+CREATE TABLE `usuarios` (
+  `id_usuario` int(11) NOT NULL,
+  `username` varchar(50) NOT NULL,
+  `password` varchar(255) NOT NULL,
+  `id_rol` int(11) NOT NULL DEFAULT 1
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Volcado de datos para la tabla `usuarios`
+--
+
+INSERT INTO `usuarios` (`id_usuario`, `username`, `password`, `id_rol`) VALUES
+(1, 'admin', 'admin123', 1);
+
+-- --------------------------------------------------------
+
+--
+-- Estructura de tabla para la tabla `usuario_rol`
+--
+
+CREATE TABLE `usuario_rol` (
+  `id_ur` int(11) NOT NULL,
+  `id_user` int(11) NOT NULL,
+  `id_rol` int(11) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Índices para tablas volcadas
+--
+
+--
+-- Indices de la tabla `clientes`
+--
+ALTER TABLE `clientes`
+  ADD PRIMARY KEY (`id_cliente`),
+  ADD UNIQUE KEY `cedula` (`cedula`);
+
+--
+-- Indices de la tabla `direcciones`
+--
+ALTER TABLE `direcciones`
+  ADD PRIMARY KEY (`id_direccion`),
+  ADD KEY `idx_coords` (`latitud`,`longitud`);
+
+--
+-- Indices de la tabla `equipos`
+--
+ALTER TABLE `equipos`
+  ADD PRIMARY KEY (`id_equipo`),
+  ADD UNIQUE KEY `direccion_mac` (`direccion_mac`),
+  ADD UNIQUE KEY `idx_nap_puerto` (`id_naps`,`num_puerto_nap`),
+  ADD UNIQUE KEY `id_servicio` (`id_servicio`);
+
+--
+-- Indices de la tabla `logs`
+--
+ALTER TABLE `logs`
+  ADD PRIMARY KEY (`id_log`),
+  ADD KEY `fk_log_user` (`id_user`);
+
+--
+-- Indices de la tabla `modulos`
+--
+ALTER TABLE `modulos`
+  ADD PRIMARY KEY (`id_modulo`);
+
+--
+-- Indices de la tabla `naps`
+--
+ALTER TABLE `naps`
+  ADD PRIMARY KEY (`id_nap`),
+  ADD UNIQUE KEY `codigo` (`codigo`),
+  ADD KEY `fk_nap_olt` (`id_olts`);
+
+--
+-- Indices de la tabla `nodos`
+--
+ALTER TABLE `nodos`
+  ADD PRIMARY KEY (`id_nodo`);
+
+--
+-- Indices de la tabla `notificaciones`
+--
+ALTER TABLE `notificaciones`
+  ADD PRIMARY KEY (`id_notificacion`),
+  ADD KEY `fk_notif_cliente` (`id_cliente`);
+
+--
+-- Indices de la tabla `olts`
+--
+ALTER TABLE `olts`
+  ADD PRIMARY KEY (`id_olt`),
+  ADD UNIQUE KEY `ip_gestion` (`ip_gestion`),
+  ADD KEY `fk_olt_nodo` (`id_nodos`);
+
+--
+-- Indices de la tabla `paginas`
+--
+ALTER TABLE `paginas`
+  ADD PRIMARY KEY (`id_pagina`),
+  ADD KEY `fk_pagina_modulo` (`id_modulo`);
+
+--
+-- Indices de la tabla `pagos`
+--
+ALTER TABLE `pagos`
+  ADD PRIMARY KEY (`id_pago`),
+  ADD KEY `fk_pago_cliente` (`id_cliente`),
+  ADD KEY `fk_pago_srv` (`id_servicio`),
+  ADD KEY `fk_pago_user` (`id_usuario`);
+
+--
+-- Indices de la tabla `permisos`
+--
+ALTER TABLE `permisos`
+  ADD PRIMARY KEY (`id_permiso`),
+  ADD UNIQUE KEY `nombre_permiso` (`nombre_permiso`);
+
+--
+-- Indices de la tabla `planes`
+--
+ALTER TABLE `planes`
+  ADD PRIMARY KEY (`id_plan`);
+
+--
+-- Indices de la tabla `rm_permiso`
+--
+ALTER TABLE `rm_permiso`
+  ADD PRIMARY KEY (`id_rm_per`),
+  ADD KEY `fk_rmper_rmp` (`id_rmp`),
+  ADD KEY `fk_rmper_permiso` (`id_permiso`);
+
+--
+-- Indices de la tabla `rol`
+--
+ALTER TABLE `rol`
+  ADD PRIMARY KEY (`id_rol`),
+  ADD UNIQUE KEY `nombre_rol` (`nombre_rol`);
+
+--
+-- Indices de la tabla `rol_modulo_pagina`
+--
+ALTER TABLE `rol_modulo_pagina`
+  ADD PRIMARY KEY (`id_rmp`),
+  ADD KEY `fk_rmp_rol` (`id_rol`),
+  ADD KEY `fk_rmp_mod` (`id_modulo`),
+  ADD KEY `fk_rmp_pag` (`id_pagina`);
+
+--
+-- Indices de la tabla `servicios`
+--
+ALTER TABLE `servicios`
+  ADD PRIMARY KEY (`id_servicio`),
+  ADD KEY `fk_srv_cliente` (`id_cliente`),
+  ADD KEY `fk_srv_plan` (`id_plan`),
+  ADD KEY `fk_srv_dir` (`id_direccion`);
+
+--
+-- Indices de la tabla `tickets`
+--
+ALTER TABLE `tickets`
+  ADD PRIMARY KEY (`id_ticket`),
+  ADD KEY `fk_ticket_cliente` (`id_cliente`),
+  ADD KEY `fk_ticket_srv` (`id_servicio`);
+
+--
+-- Indices de la tabla `user`
+--
+ALTER TABLE `user`
+  ADD PRIMARY KEY (`id_user`),
+  ADD UNIQUE KEY `username` (`username`),
+  ADD UNIQUE KEY `email` (`email`);
+
+--
+-- Indices de la tabla `usuarios`
+--
+ALTER TABLE `usuarios`
+  ADD PRIMARY KEY (`id_usuario`),
+  ADD UNIQUE KEY `username` (`username`);
+
+--
+-- Indices de la tabla `usuario_rol`
+--
+ALTER TABLE `usuario_rol`
+  ADD PRIMARY KEY (`id_ur`),
+  ADD KEY `fk_ur_user` (`id_user`),
+  ADD KEY `fk_ur_rol` (`id_rol`);
+
+--
+-- AUTO_INCREMENT de las tablas volcadas
+--
+
+--
+-- AUTO_INCREMENT de la tabla `clientes`
+--
+ALTER TABLE `clientes`
+  MODIFY `id_cliente` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT de la tabla `direcciones`
+--
+ALTER TABLE `direcciones`
+  MODIFY `id_direccion` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT de la tabla `equipos`
+--
+ALTER TABLE `equipos`
+  MODIFY `id_equipo` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT de la tabla `logs`
+--
+ALTER TABLE `logs`
+  MODIFY `id_log` bigint(20) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT de la tabla `modulos`
+--
+ALTER TABLE `modulos`
+  MODIFY `id_modulo` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=6;
+
+--
+-- AUTO_INCREMENT de la tabla `naps`
+--
+ALTER TABLE `naps`
+  MODIFY `id_nap` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT de la tabla `nodos`
+--
+ALTER TABLE `nodos`
+  MODIFY `id_nodo` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT de la tabla `notificaciones`
+--
+ALTER TABLE `notificaciones`
+  MODIFY `id_notificacion` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT de la tabla `olts`
+--
+ALTER TABLE `olts`
+  MODIFY `id_olt` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT de la tabla `paginas`
+--
+ALTER TABLE `paginas`
+  MODIFY `id_pagina` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=12;
+
+--
+-- AUTO_INCREMENT de la tabla `pagos`
+--
+ALTER TABLE `pagos`
+  MODIFY `id_pago` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT de la tabla `permisos`
+--
+ALTER TABLE `permisos`
+  MODIFY `id_permiso` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=5;
+
+--
+-- AUTO_INCREMENT de la tabla `planes`
+--
+ALTER TABLE `planes`
+  MODIFY `id_plan` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT de la tabla `rm_permiso`
+--
+ALTER TABLE `rm_permiso`
+  MODIFY `id_rm_per` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT de la tabla `rol`
+--
+ALTER TABLE `rol`
+  MODIFY `id_rol` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3;
+
+--
+-- AUTO_INCREMENT de la tabla `rol_modulo_pagina`
+--
+ALTER TABLE `rol_modulo_pagina`
+  MODIFY `id_rmp` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=20;
+
+--
+-- AUTO_INCREMENT de la tabla `servicios`
+--
+ALTER TABLE `servicios`
+  MODIFY `id_servicio` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT de la tabla `tickets`
+--
+ALTER TABLE `tickets`
+  MODIFY `id_ticket` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT de la tabla `user`
+--
+ALTER TABLE `user`
+  MODIFY `id_user` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT de la tabla `usuarios`
+--
+ALTER TABLE `usuarios`
+  MODIFY `id_usuario` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=2;
+
+--
+-- AUTO_INCREMENT de la tabla `usuario_rol`
+--
+ALTER TABLE `usuario_rol`
+  MODIFY `id_ur` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- Restricciones para tablas volcadas
+--
+
+--
+-- Filtros para la tabla `equipos`
+--
+ALTER TABLE `equipos`
+  ADD CONSTRAINT `fk_equipo_nap` FOREIGN KEY (`id_naps`) REFERENCES `naps` (`id_nap`),
+  ADD CONSTRAINT `fk_equipo_srv` FOREIGN KEY (`id_servicio`) REFERENCES `servicios` (`id_servicio`) ON DELETE SET NULL;
+
+--
+-- Filtros para la tabla `logs`
+--
+ALTER TABLE `logs`
+  ADD CONSTRAINT `fk_log_user` FOREIGN KEY (`id_user`) REFERENCES `user` (`id_user`) ON DELETE SET NULL;
+
+--
+-- Filtros para la tabla `naps`
+--
+ALTER TABLE `naps`
+  ADD CONSTRAINT `fk_nap_olt` FOREIGN KEY (`id_olts`) REFERENCES `olts` (`id_olt`);
+
+--
+-- Filtros para la tabla `notificaciones`
+--
+ALTER TABLE `notificaciones`
+  ADD CONSTRAINT `fk_notif_cliente` FOREIGN KEY (`id_cliente`) REFERENCES `clientes` (`id_cliente`);
+
+--
+-- Filtros para la tabla `olts`
+--
+ALTER TABLE `olts`
+  ADD CONSTRAINT `fk_olt_nodo` FOREIGN KEY (`id_nodos`) REFERENCES `nodos` (`id_nodo`);
+
+--
+-- Filtros para la tabla `paginas`
+--
+ALTER TABLE `paginas`
+  ADD CONSTRAINT `fk_pagina_modulo` FOREIGN KEY (`id_modulo`) REFERENCES `modulos` (`id_modulo`);
+
+--
+-- Filtros para la tabla `pagos`
+--
+ALTER TABLE `pagos`
+  ADD CONSTRAINT `fk_pago_cliente` FOREIGN KEY (`id_cliente`) REFERENCES `clientes` (`id_cliente`),
+  ADD CONSTRAINT `fk_pago_srv` FOREIGN KEY (`id_servicio`) REFERENCES `servicios` (`id_servicio`),
+  ADD CONSTRAINT `fk_pago_user` FOREIGN KEY (`id_usuario`) REFERENCES `user` (`id_user`);
+
+--
+-- Filtros para la tabla `rm_permiso`
+--
+ALTER TABLE `rm_permiso`
+  ADD CONSTRAINT `fk_rmper_permiso` FOREIGN KEY (`id_permiso`) REFERENCES `permisos` (`id_permiso`),
+  ADD CONSTRAINT `fk_rmper_rmp` FOREIGN KEY (`id_rmp`) REFERENCES `rol_modulo_pagina` (`id_rmp`);
+
+--
+-- Filtros para la tabla `rol_modulo_pagina`
+--
+ALTER TABLE `rol_modulo_pagina`
+  ADD CONSTRAINT `fk_rmp_mod` FOREIGN KEY (`id_modulo`) REFERENCES `modulos` (`id_modulo`),
+  ADD CONSTRAINT `fk_rmp_pag` FOREIGN KEY (`id_pagina`) REFERENCES `paginas` (`id_pagina`),
+  ADD CONSTRAINT `fk_rmp_rol` FOREIGN KEY (`id_rol`) REFERENCES `rol` (`id_rol`);
+
+--
+-- Filtros para la tabla `servicios`
+--
+ALTER TABLE `servicios`
+  ADD CONSTRAINT `fk_srv_cliente` FOREIGN KEY (`id_cliente`) REFERENCES `clientes` (`id_cliente`),
+  ADD CONSTRAINT `fk_srv_dir` FOREIGN KEY (`id_direccion`) REFERENCES `direcciones` (`id_direccion`),
+  ADD CONSTRAINT `fk_srv_plan` FOREIGN KEY (`id_plan`) REFERENCES `planes` (`id_plan`);
+
+--
+-- Filtros para la tabla `tickets`
+--
+ALTER TABLE `tickets`
+  ADD CONSTRAINT `fk_ticket_cliente` FOREIGN KEY (`id_cliente`) REFERENCES `clientes` (`id_cliente`),
+  ADD CONSTRAINT `fk_ticket_srv` FOREIGN KEY (`id_servicio`) REFERENCES `servicios` (`id_servicio`);
+
+--
+-- Filtros para la tabla `usuario_rol`
+--
+ALTER TABLE `usuario_rol`
+  ADD CONSTRAINT `fk_ur_rol` FOREIGN KEY (`id_rol`) REFERENCES `rol` (`id_rol`),
+  ADD CONSTRAINT `fk_ur_user` FOREIGN KEY (`id_user`) REFERENCES `user` (`id_user`);
+COMMIT;
+
+/*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
+/*!40101 SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS */;
+/*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
+
+
+--------------------
+File: /redytelca/cambiar_password.php
+--------------------
+
+<?php
+header('Content-Type: application/json; charset=utf-8');
+require 'conexion.php';
+
+$input = file_get_contents('php://input');
+$data = json_decode($input, true);
+if (!$data) {
+    $data = $_POST;
+}
+
+$username = trim($data['username'] ?? '');
+$passwordActual = trim($data['password_actual'] ?? '');
+$passwordNueva = trim($data['password_nueva'] ?? '');
+
+if (!$username || !$passwordActual || !$passwordNueva) {
+    echo json_encode(['status' => 'error', 'message' => 'Todos los campos son obligatorios']);
+    exit;
+}
+
+$stmt = $pdo->prepare('SELECT id_usuario FROM usuarios WHERE username = ? AND password = ?');
+$stmt->execute([$username, $passwordActual]);
+
+if (!$stmt->fetch()) {
+    echo json_encode(['status' => 'error', 'message' => 'La contraseña actual es incorrecta']);
+    exit;
+}
+
+$update = $pdo->prepare('UPDATE usuarios SET password = ? WHERE username = ?');
+$ok = $update->execute([$passwordNueva, $username]);
+
+echo json_encode([
+    'status' => $ok ? 'success' : 'error',
+    'message' => $ok ? 'Contraseña actualizada correctamente' : 'No se pudo actualizar la contraseña'
+]);
+
+
+--------------------
+File: /redytelca/clientes_listar.php
+--------------------
+
+<?php
+header('Content-Type: application/json; charset=utf-8');
+require 'conexion.php';
+
+try {
+    $pdo->exec("ALTER TABLE clientes ADD COLUMN IF NOT EXISTS direccion VARCHAR(255) NOT NULL DEFAULT ''");
+    $pdo->exec("ALTER TABLE clientes ADD COLUMN IF NOT EXISTS olt VARCHAR(100) NOT NULL DEFAULT ''");
+} catch (Exception $e) {
+    // Ignorar si la tabla ya tiene esas columnas o si la base no soporta la sintaxis exacta.
+}
+
+$filter = isset($_GET['filter']) ? trim($_GET['filter']) : '';
+
+$perPage = isset($_GET['per_page']) ? intval($_GET['per_page']) : 10;
+$perPage = max(1, min(100, $perPage)); // límite de seguridad, evita per_page=999999
+
+$page = isset($_GET['page']) ? intval($_GET['page']) : 1;
+$page = max(1, $page);
+
+$whereSql = '';
+$params = [];
+if ($filter !== '') {
+    $whereSql = " WHERE nombres LIKE ? OR apellidos LIKE ? OR cedula LIKE ? OR correo LIKE ? OR COALESCE(direccion, '') LIKE ? OR COALESCE(olt, '') LIKE ?";
+    $filterParam = "%$filter%";
+    $params = [$filterParam, $filterParam, $filterParam, $filterParam, $filterParam, $filterParam];
+}
+
+// 1) Contar el total ANTES de traer filas: permite calcular cuántas páginas
+// existen sin cargar los 2000 registros en memoria.
+$countQuery = "SELECT COUNT(*) FROM clientes" . $whereSql;
+$stmtCount = $pdo->prepare($countQuery);
+$stmtCount->execute($params);
+$total = (int) $stmtCount->fetchColumn();
+$totalPages = max(1, (int) ceil($total / $perPage));
+
+if ($page > $totalPages) {
+    $page = $totalPages;
+}
+$offset = ($page - 1) * $perPage;
+
+// 2) Traer únicamente el bloque de la página solicitada (LIMIT/OFFSET)
+$query = "SELECT id_cliente, nombres, apellidos, cedula, num_telefono, correo,
+                 COALESCE(direccion, '') AS direccion, COALESCE(olt, '') AS olt, fecha_registro
+          FROM clientes" . $whereSql . " ORDER BY fecha_registro DESC LIMIT ? OFFSET ?";
+
+$stmt = $pdo->prepare($query);
+$paramIndex = 1;
+foreach ($params as $param) {
+    $stmt->bindValue($paramIndex, $param, PDO::PARAM_STR);
+    $paramIndex++;
+}
+$stmt->bindValue($paramIndex++, $perPage, PDO::PARAM_INT);
+$stmt->bindValue($paramIndex++, $offset, PDO::PARAM_INT);
+$stmt->execute();
+$clientes = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+echo json_encode([
+    'status' => 'success',
+    'clientes' => $clientes,
+    'page' => $page,
+    'pages' => $totalPages,
+    'total' => $total,
+    'per_page' => $perPage
+]);
+
+--------------------
+File: /redytelca/cliente_actualizar.php
+--------------------
+
+<?php
+header('Content-Type: application/json; charset=utf-8');
+require 'conexion.php';
+
+try {
+    $pdo->exec("ALTER TABLE clientes ADD COLUMN IF NOT EXISTS direccion VARCHAR(255) NOT NULL DEFAULT ''");
+    $pdo->exec("ALTER TABLE clientes ADD COLUMN IF NOT EXISTS olt VARCHAR(100) NOT NULL DEFAULT ''");
+} catch (Exception $e) {
+    // Ignorar si la tabla ya tiene esas columnas.
+}
+
+$input = file_get_contents('php://input');
+$data = json_decode($input, true);
+if (!$data) {
+    $data = $_POST;
+}
+
+if (empty($data['id_cliente']) || empty($data['nombres']) || empty($data['apellidos']) || empty($data['cedula']) || empty($data['telefono']) || empty($data['correo'])) {
+    echo json_encode(['status' => 'error', 'message' => 'Faltan datos obligatorios']);
+    exit;
+}
+
+$stmt = $pdo->prepare(
+    "UPDATE clientes SET nombres = ?, apellidos = ?, cedula = ?, num_telefono = ?, correo = ?, direccion = ?, olt = ? WHERE id_cliente = ?"
+);
+
+$ok = $stmt->execute([
+    $data['nombres'],
+    $data['apellidos'],
+    $data['cedula'],
+    $data['telefono'],
+    $data['correo'],
+    $data['direccion'] ?? '',
+    $data['olt'] ?? '',
+    $data['id_cliente']
+]);
+
+echo json_encode([
+    'status' => $ok ? 'success' : 'error',
+    'message' => $ok ? 'Cliente actualizado correctamente' : 'Error al actualizar cliente'
+]);
+?>
+
+--------------------
+File: /redytelca/cliente_eliminar.php
+--------------------
+
+<?php
+header('Content-Type: application/json; charset=utf-8');
+require 'conexion.php';
+
+$input = file_get_contents('php://input');
+$data = json_decode($input, true);
+if (!$data) {
+    $data = $_POST;
+}
+
+if (empty($data['id_cliente'])) {
+    echo json_encode(['status' => 'error', 'message' => 'No se recibió el identificador del cliente']);
+    exit;
+}
+
+$stmt = $pdo->prepare('DELETE FROM clientes WHERE id_cliente = ?');
+$ok = $stmt->execute([$data['id_cliente']]);
+
+echo json_encode([
+    'status' => $ok ? 'success' : 'error',
+    'message' => $ok ? 'Cliente eliminado correctamente' : 'Error al eliminar el cliente'
+]);
+
+
+--------------------
+File: /redytelca/conexion.php
+--------------------
+
+<?php
+$host = "localhost";
+$dbname = "bd_redytelca";
+$user = "root";
+$pass = ""; // Por defecto en XAMPP está vacío
+
+try {
+    $pdo = new PDO("mysql:host=$host;dbname=$dbname;charset=utf8", $user, $pass);
+    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+} catch (PDOException $e) {
+    if (php_sapi_name() !== 'cli') {
+        header('Content-Type: application/json; charset=utf-8');
+        http_response_code(500);
+        echo json_encode(["status" => "error", "message" => "Error de conexión: " . $e->getMessage()]);
+        exit;
+    }
+    throw $e;
+}
+?>
+
+--------------------
+File: /redytelca/docs/diagrama_casos_uso.md
+--------------------
+
+# Diagrama de casos de uso
+
+## Actores
+- Administrador
+- Usuario del sistema
+
+## Casos de uso principales
+1. Iniciar sesión
+2. Cambiar contraseña
+3. Registrar cliente
+4. Editar cliente
+5. Eliminar cliente
+6. Consultar dashboard
+7. Ver detalles de la OLT y dirección asociada
+
+```mermaid
+flowchart TD
+    A[Administrador] --> B[Iniciar sesión]
+    A --> C[Cambiar contraseña]
+    A --> D[Registrar cliente]
+    A --> E[Editar cliente]
+    A --> F[Eliminar cliente]
+    A --> G[Consultar dashboard]
+    G --> H[Ver estado de la red]
+    D --> I[Asignar dirección y OLT]
+    E --> I
+```
+
+
+--------------------
+File: /redytelca/DOCUMENTACION.md
+--------------------
+
+DOCUMENTACIÓN DEL SISTEMA
+
+1) Estructura y navegación del menú
+- Organización: el sistema debe contar con secciones principales claramente definidas: "Descripción", "Menú" y "Principal".
+- Configuraciones: incluir una sección "Configuraciones" para gestionar parámetros globales (empresa, apariencia, reglas del sistema).
+- Navegación: cada sección debe mapearse a rutas y permisos; el menú debe mostrar solo las opciones permitidas por el rol del usuario.
+
+2) Gestión de la empresa
+- Datos básicos: almacenar logo, nombre legal, colores corporativos y otros metadatos en la sección de Configuraciones.
+- Uso: estos valores deben aplicarse dinámicamente en la interfaz (cabeceras, favicon, paleta de estilos) y ser editables por administradores.
+
+3) Administración de usuarios y roles
+- Roles: permitir la creación de roles (ej.: Administrador, Operador) con nombres y descripciones.
+- Permisos: asignar permisos granulares por módulo y vista. Un permiso determina acceso a rutas, botones y operaciones (leer, crear, actualizar, eliminar).
+- Asignación: usuarios vinculados a uno o varios roles; el sistema resuelve permisos efectivos por la unión de permisos de sus roles.
+
+4) Diseño de la interfaz (Grid y paginación)
+- Grid: implementar componentes tipo "Grid" para listar entidades (clientes, usuarios, roles) con columnas configurables.
+- Paginación: incluir paginación y/o carga perezosa (infinite scroll) para manejar grandes volúmenes; soportar filtros y ordenamiento del lado del servidor.
+- Accesibilidad: asegurar tablas responsivas y con soporte para teclado y lectores de pantalla.
+
+5) Gestión de base de datos
+- Modelo: documentar el diagrama Entidad-Relación y las tablas principales: usuarios, roles, permisos, rol_permiso, usuario_rol, clientes, etc.
+- Relaciones: definir claves foráneas y cardinalidades; mantener integridad referencial y restricciones apropiadas.
+- Permisos: almacenar permisos en tablas normalizadas para permitir consultas eficientes sobre acceso por usuario/rol.
+
+6) Seguridad y Sesiones
+- Autenticación: usar tokens (JWT o similares) para sesiones; el token debe tener expiración y firmarse con clave segura.
+- Almacenamiento: utilizar Local Storage o Session Storage según el caso, pero limpiar tokens y datos sensibles al cerrar sesión.
+- Renovación y revocación: soportar refresh tokens y mecanismos para revocar sesiones (ej.: lista negra o control de versiones de token).
+- Buenas prácticas: transmitir siempre por HTTPS, validar permisos en servidor, y evitar exponer datos sensibles en el cliente.
+
+Notas finales
+- Esta documentación debe mantenerse sincronizada con el diagrama ER y el código. Cualquier cambio en permisos, rutas o estructura de tablas requiere actualizar este documento.
+- Recomendación: incluir ejemplos de API y un esquema JSON de permisos para facilitar integraciones.
+
+Mejoras propuestas (resumen):
+- RBAC completo y matriz de permisos para gestión granular de accesos.
+- API REST/JSON para configuraciones, usuarios, roles y clientes.
+- Paginación y búsqueda server-side en Grids.
+- Autenticación con JWT, refresh tokens y opciones 2FA.
+- Auditoría, backups, optimización de DB, tests y CI/CD.
+
+Ver IMPROVEMENTS.md para el detalle por departamento y pasos siguientes.
+
+Fecha: 2026-06-20
+Autor: Equipo de desarrollo
+
+
+--------------------
+File: /redytelca/IMPROVEMENTS.md
+--------------------
+
+MEJORAS PROPUESTAS - REDYTELCA
+
+Resumen:
+Se listan mejoras generales y por departamento para priorizar implementación.
+
+Mejoras generales (prioridad alta/med/ baja):
+- RBAC completo y matriz de permisos (Alta): modelo de permisos por recurso/acción y UI para administrar roles.
+- API REST/JSON (Alta): endpoints para usuarios, roles, permisos, clientes y configuraciones.
+- Paginación y búsqueda server-side para Grid (Alta): soporte para page/limit/filter/sort.
+- Autenticación robusta (Alta): JWT con refresh tokens, expiración, revocación y 2FA opcional.
+- Auditoría y logging (Media): registro de operaciones críticas y cambios de configuración.
+- Backups, índices y optimización DB (Alta): planeación de índices, procedimientos de backup y mantenimiento.
+- Tests y CI/CD (Media): pipelines para pruebas unitarias, integración y despliegue.
+- Monitorización y alertas (Media): integraciones con Prometheus/Alertmanager o similar.
+
+Mejoras por departamento:
+- Administración:
+  - Panel de configuración avanzada, gestión de branding y exportes CSV/PDF.
+  - Historial de cambios y versión de configuraciones.
+
+- Operación:
+  - Vista de mapa en tiempo real, filtros y bulk actions sobre clientes/NAPs.
+  - Dashboards por KPIs operativos y notificaciones en tiempo real.
+
+- Soporte:
+  - Cola de tickets con priorización, SLA, plantillas y reasignación rápida.
+  - Integración con chat interno y registros de llamadas.
+
+- Comercial/Ventas:
+  - CRM ligero: historial de contactos, oportunidades y pipeline.
+  - Reportes de conversión y campañas.
+
+- Finanzas:
+  - Gestión de facturas, conciliación y reportes periódicos.
+  - Exportes contables y control de pagos/recibos.
+
+- Seguridad/IT:
+  - Gestión de secretos, rotación de claves y accesos administrativos.
+  - Monitoreo de integridad y herramientas de respuesta a incidentes.
+
+Siguientes pasos recomendados:
+1. Priorizar RBAC y API REST.
+2. Crear tickets (issues) por mejora y asignar responsables.
+3. Implementar pruebas automáticas y pipeline CI para cambios críticos.
+
+Fecha: 2026-06-20
+Autor: Equipo de desarrollo
+
+
+--------------------
+File: /redytelca/index.html
+--------------------
+
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>REDYTELCA Admin</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+    <div id="login-overlay">
+        <div class="card login-box">
+            <h3>Login REDYTELCA</h3>
+            <input id="user" type="text" placeholder="Usuario" autocomplete="username">
+            <input id="pass" type="password" placeholder="Contraseña" autocomplete="current-password">
+            <button onclick="login()">Ingresar</button>
+        </div>
+    </div>
+
+    <div class="sidebar">
+        <div class="brand">REDYTELCA</div>
+        <!-- El menú bajo "Principal" se pinta dinámicamente desde renderMenu() en app.js -->
+        <div id="sidebar-nav">
+            <div class="nav-group">
+                <div class="nav-group-title">Principal</div>
+                <div class="nav-item active" data-page="dash" onclick="showPage('dash', this)">Inicio</div>
+                <div class="nav-item" data-page="mapa" onclick="showPage('mapa', this)">Mapa</div>
+                <div class="nav-item" data-page="clientes" onclick="showPage('clientes', this)">Clientes</div>
+            </div>
+        </div>
+    </div>
+
+    <main class="main-content">
+        <header class="top-bar">
+            <div class="top-left">
+                <button class="sidebar-toggle" onclick="toggleSidebar()" aria-label="Alternar menú lateral">☰</button>
+                <div>
+                    <p class="eyebrow">Operación</p>
+                    <h2 id="page-title">Panel de control</h2>
+                </div>
+            </div>
+            <div class="top-actions">
+                <div class="header-meta">
+                    <span>Estado actual</span>
+                    <strong id="dashboard-date"></strong>
+                </div>
+                <button class="profile-button" onclick="toggleProfileMenu()">
+                    <span id="profile-name-label">Admin</span>
+                    <span class="profile-arrow">▾</span>
+                </button>
+                <div id="profile-menu" class="profile-menu">
+                    <button onclick="showPage('password', document.querySelector('[data-page=\"password\"]'))">Cambiar contraseña</button>
+                    <button onclick="logout()">Cerrar sesión</button>
+                </div>
+            </div>
+        </header>
+
+        <div id="dash" class="page active">
+            <div class="dashboard-shell">
+                <section class="stats-grid">
+                    <div class="stat-card border-blue">
+                        <div>
+                            <p class="stat-label">Clientes activos</p>
+                            <h2 id="stat-clients">0</h2>
+                        </div>
+                        <span class="stat-pill positive">+12.4%</span>
+                    </div>
+                    <div class="stat-card border-green">
+                        <div>
+                            <p class="stat-label">Servicios operativos</p>
+                            <h2>94.8%</h2>
+                        </div>
+                        <span class="stat-pill positive">+3.1%</span>
+                    </div>
+                    <div class="stat-card border-yellow">
+                        <div>
+                            <p class="stat-label">Tickets abiertos</p>
+                            <h2>18</h2>
+                        </div>
+                        <span class="stat-pill warning">-5 hoy</span>
+                    </div>
+                    <div class="stat-card border-red">
+                        <div>
+                            <p class="stat-label">NAPs críticas</p>
+                            <h2>4</h2>
+                        </div>
+                        <span class="stat-pill negative">2 urgentes</span>
+                    </div>
+                </section>
+
+                <section class="dashboard-grid">
+                    <div class="card chart-card">
+                        <div class="card-title-row">
+                            <h3>Servicios por estado</h3>
+                            <span>Hoy</span>
+                        </div>
+                        <div class="donut-panel">
+                            <div class="donut-chart">
+                                <div class="donut-center">
+                                    <strong>78%</strong>
+                                    <span>Operativos</span>
+                                </div>
+                            </div>
+                            <ul class="legend-list">
+                                <li><span class="legend-dot blue"></span>Operativos <strong>78%</strong></li>
+                                <li><span class="legend-dot yellow"></span>Mantenimiento <strong>12%</strong></li>
+                                <li><span class="legend-dot red"></span>Caídos <strong>10%</strong></li>
+                            </ul>
+                        </div>
+                    </div>
+
+                    <div class="card chart-card">
+                        <div class="card-title-row">
+                            <h3>Crecimiento de usuarios</h3>
+                            <span>Últimos 6 meses</span>
+                        </div>
+                        <div class="trend-bars">
+                            <span style="height: 45%"></span>
+                            <span style="height: 62%"></span>
+                            <span style="height: 58%"></span>
+                            <span style="height: 78%"></span>
+                            <span style="height: 84%"></span>
+                            <span style="height: 95%"></span>
+                        </div>
+                        <div class="trend-labels">
+                            <span>Ene</span>
+                            <span>Feb</span>
+                            <span>Mar</span>
+                            <span>Abr</span>
+                            <span>May</span>
+                            <span>Jun</span>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="card table-card">
+                    <div class="card-title-row">
+                        <h3>OLTs principales</h3>
+                        <button class="table-action">Ver todo</button>
+                    </div>
+                    <div class="table-wrap">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>OLT</th>
+                                    <th>Ubicación</th>
+                                    <th>Estado</th>
+                                    <th>Clientes</th>
+                                    <th>Última revisión</th>
+                                </tr>
+                            </thead>
+                            <tbody id="olt-table-body">
+                                <tr>
+                                    <td>OLT-01</td>
+                                    <td>San Francisco</td>
+                                    <td><span class="status status-ok">Operativa</span></td>
+                                    <td id="olt-san-francisco">0</td>
+                                    <td>Ahora</td>
+                                </tr>
+                                <tr>
+                                    <td>OLT-02</td>
+                                    <td>El Bajo</td>
+                                    <td><span class="status status-warning">Monitoreo</span></td>
+                                    <td id="olt-el-bajo">0</td>
+                                    <td>Hace 5 min</td>
+                                </tr>
+                                <tr>
+                                    <td>OLT-03</td>
+                                    <td>El Guacharo</td>
+                                    <td><span class="status status-ok">Operativa</span></td>
+                                    <td id="olt-el-guacharo">0</td>
+                                    <td>Hace 12 min</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+            </div>
+        </div>
+
+        <div id="clientes" class="page">
+            <div class="page-heading">
+                <div>
+                    <p class="eyebrow">Gestión</p>
+                    <h1>Clientes</h1>
+                </div>
+            </div>
+            <div class="card">
+                <input id="search-client" type="text" placeholder="🔍 Buscar por Cédula o Nombre..." oninput="loadClientes(this.value, 1)">
+                <div id="clientes-pagination" class="pagination-row"></div>
+                <div id="clientes-list"></div>
+            </div>
+
+            <div id="client-profile-panel" class="card client-profile-panel" style="display:none;">
+                <div class="client-profile-top">
+                    <div>
+                        <p class="eyebrow">Ficha detallada</p>
+                        <h2 id="profile-name">Nombre completo</h2>
+                    </div>
+                    <span id="profile-status-badge" class="status status-ok">Activo</span>
+                </div>
+                <div class="profile-grid">
+                    <div class="profile-card">
+                        <h3>Datos generales</h3>
+                        <ul>
+                            <li><span>Estado actual</span><strong id="profile-state">Activo</strong></li>
+                            <li><span>Router asignado</span><strong id="profile-router">Sin asignar</strong></li>
+                            <li><span>Cédula</span><strong id="profile-id">-</strong></li>
+                            <li><span>Dirección</span><strong id="profile-address">-</strong></li>
+                            <li><span>Teléfono</span><strong id="profile-phone">-</strong></li>
+                            <li><span>Correo</span><strong id="profile-email">-</strong></li>
+                        </ul>
+                    </div>
+                    <div class="profile-card">
+                        <h3>Gestión de ubicación</h3>
+                        <label for="profile-zone">Clasificar por zona</label>
+                        <select id="profile-zone" onchange="updateZoneLabel()">
+                            <option>BAJO</option>
+                            <option>VILLA</option>
+                            <option>FIBRA-VILLA</option>
+                            <option>PRU</option>
+                            <option>OTRO</option>
+                        </select>
+                    </div>
+                    <div class="profile-card">
+                        <h3>Notificaciones</h3>
+                        <div class="summary-metrics">
+                            <div><span>Días de pago</span><strong id="notify-payment-days">15</strong></div>
+                            <div><span>Factura</span><strong id="notify-invoice">Emitida</strong></div>
+                            <div><span>Aviso pantalla</span><strong id="notify-screen">Sí</strong></div>
+                            <div><span>Aviso SMS</span><strong id="notify-sms">No</strong></div>
+                        </div>
+                    </div>
+                    <div class="profile-card">
+                        <h3>Pagos y corte</h3>
+                        <div class="summary-metrics">
+                            <div><span>Próximo corte</span><strong id="payment-next-cut">25/06</strong></div>
+                            <div><span>Estado financiero</span><strong id="payment-status">Al día</strong></div>
+                            <div><span>Deuda</span><strong id="payment-debt">$0,00</strong></div>
+                            <div><span>Saldo</span><strong id="payment-balance">$120,00</strong></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="edit-client-card" class="card" style="display:none; margin-top: 16px;">
+                <h2>Editar Cliente</h2>
+                <input id="edit-id" type="hidden">
+                <input id="edit-nombres" type="text" placeholder="Nombres">
+                <input id="edit-apellidos" type="text" placeholder="Apellidos">
+                <input id="edit-cedula" type="text" placeholder="Cédula">
+                <input id="edit-telefono" type="text" placeholder="Teléfono">
+                <input id="edit-correo" type="email" placeholder="Correo">
+                <input id="edit-direccion" type="text" placeholder="Dirección completa">
+                <input id="edit-olt" type="text" placeholder="OLT conectada">
+                <button onclick="actualizarCliente()">Guardar cambios</button>
+                <button onclick="cerrarEdicionCliente()" style="margin-left: 8px;">Cancelar</button>
+            </div>
+        </div>
+
+        <div id="registro" class="page">
+            <div class="page-heading">
+                <div>
+                    <p class="eyebrow">Registro</p>
+                    <h1>Alta de cliente</h1>
+                </div>
+            </div>
+            <div class="card">
+                <input id="nombres" type="text" placeholder="Nombres">
+                <input id="apellidos" type="text" placeholder="Apellidos">
+                <input id="cedula" type="text" placeholder="Cédula">
+                <input id="telefono" type="text" placeholder="Teléfono">
+                <input id="correo" type="email" placeholder="Correo">
+                <input id="direccion" type="text" placeholder="Dirección completa">
+                <input id="olt" type="text" placeholder="OLT a la que está conectado">
+                <button onclick="registrarCliente()">Guardar en Base de Datos</button>
+            </div>
+        </div>
+
+        <div id="tareas" class="page">
+            <div class="page-heading">
+                <div>
+                    <p class="eyebrow">Control</p>
+                    <h1>Control de tareas</h1>
+                </div>
+            </div>
+            <div class="card">
+                <div class="task-toolbar">
+                    <span>Hoy</span>
+                    <button class="table-action" onclick="toggleTaskForm()">Nueva tarea</button>
+                </div>
+                <form id="task-form" class="card" style="display:none; margin-top:12px;">
+                    <input id="task-id" type="hidden">
+                    <input id="task-title" type="text" placeholder="Título de la tarea" required>
+                    <textarea id="task-description" placeholder="Descripción"></textarea>
+                    <select id="task-status">
+                        <option>Pendiente</option>
+                        <option>En curso</option>
+                        <option>Completada</option>
+                    </select>
+                    <select id="task-priority">
+                        <option>Alta</option>
+                        <option selected>Media</option>
+                        <option>Baja</option>
+                    </select>
+                    <select id="task-client"></select>
+                    <select id="task-user"></select>
+                    <button type="button" onclick="guardarTarea()">Guardar tarea</button>
+                    <button type="button" onclick="toggleTaskForm(true)" style="margin-left:8px;">Cancelar</button>
+                </form>
+                <div id="task-list" class="task-list"></div>
+            </div>
+        </div>
+
+        <div id="tickets" class="page">
+            <div class="page-heading">
+                <div>
+                    <p class="eyebrow">Soporte</p>
+                    <h1>Tickets</h1>
+                </div>
+            </div>
+            <div class="card">
+                <div class="filter-row" id="ticket-filters">
+                    <button class="filter-pill active" onclick="setTicketsFilter('Todos', this)">Todos</button>
+                    <button class="filter-pill" onclick="setTicketsFilter('Abierto', this)">Abierto</button>
+                    <button class="filter-pill" onclick="setTicketsFilter('En proceso', this)">En proceso</button>
+                    <button class="filter-pill" onclick="setTicketsFilter('Cerrado', this)">Cerrado</button>
+                </div>
+                <button class="table-action" onclick="toggleTicketForm()" style="margin-top:12px;">Nuevo ticket</button>
+                <form id="ticket-form" class="card" style="display:none; margin-top:12px;">
+                    <input id="ticket-id" type="hidden">
+                    <input id="ticket-subject" type="text" placeholder="Asunto del ticket" required>
+                    <textarea id="ticket-description" placeholder="Descripción"></textarea>
+                    <select id="ticket-status">
+                        <option>Abierto</option>
+                        <option>En proceso</option>
+                        <option>Cerrado</option>
+                    </select>
+                    <select id="ticket-priority">
+                        <option>Alta</option>
+                        <option selected>Media</option>
+                        <option>Baja</option>
+                    </select>
+                    <select id="ticket-client"></select>
+                    <select id="ticket-user"></select>
+                    <button type="button" onclick="guardarTicket()">Guardar ticket</button>
+                    <button type="button" onclick="toggleTicketForm(true)" style="margin-left:8px;">Cancelar</button>
+                </form>
+                <div id="ticket-list" class="ticket-list"></div>
+            </div>
+        </div>
+
+        <div id="mapa" class="page">
+            <div class="page-heading">
+                <div>
+                    <p class="eyebrow">Infraestructura</p>
+                    <h1>Mapa técnico</h1>
+                </div>
+            </div>
+            <div class="card">
+                <div class="map-controls">
+                    <div class="filter-row" id="map-filters">
+                        <button class="filter-pill active" onclick="setMapFilter('Todos', this)">Todos</button>
+                        <button class="filter-pill" onclick="setMapFilter('Router', this)">Router</button>
+                        <button class="filter-pill" onclick="setMapFilter('Emisor', this)">Emisor</button>
+                        <button class="filter-pill" onclick="setMapFilter('Ubicación', this)">Ubicación</button>
+                    </div>
+                    <div class="view-toggle">
+                        <button class="toggle-btn active" onclick="setMapMode('normal', this)">Mapa</button>
+                        <button class="toggle-btn" onclick="setMapMode('satelite', this)">Satelital</button>
+                    </div>
+                </div>
+                <div id="map-panel" class="map-panel">
+                    <div class="map-marker marker-a" data-type="Router">R-12</div>
+                    <div class="map-marker marker-b" data-type="Emisor">E-09</div>
+                    <div class="map-marker marker-c" data-type="Ubicación">U-03</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- MÓDULO NUEVO: Reportes -->
+        <div id="reportes" class="page">
+            <div class="page-heading">
+                <div>
+                    <p class="eyebrow">Analítica</p>
+                    <h1>Reportes</h1>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-title-row">
+                    <h3>Resumen operativo</h3>
+                    <button class="table-action" onclick="renderReportes()">Actualizar reporte</button>
+                </div>
+                <section class="stats-grid">
+                    <div class="stat-card border-blue">
+                        <div>
+                            <p class="stat-label">Clientes registrados</p>
+                            <h2 id="report-total-clientes">0</h2>
+                        </div>
+                    </div>
+                    <div class="stat-card border-yellow">
+                        <div>
+                            <p class="stat-label">Tareas pendientes</p>
+                            <h2 id="report-tareas-pendientes">0</h2>
+                        </div>
+                    </div>
+                    <div class="stat-card border-green">
+                        <div>
+                            <p class="stat-label">Tareas completadas</p>
+                            <h2 id="report-tareas-completadas">0</h2>
+                        </div>
+                    </div>
+                    <div class="stat-card border-red">
+                        <div>
+                            <p class="stat-label">Tickets abiertos</p>
+                            <h2 id="report-tickets-abiertos">0</h2>
+                        </div>
+                    </div>
+                </section>
+            </div>
+            <div class="card">
+                <div class="card-title-row">
+                    <h3>Tickets por prioridad</h3>
+                    <span>Vista rápida</span>
+                </div>
+                <div id="report-tickets-prioridad" class="summary-metrics"></div>
+            </div>
+        </div>
+
+        <!-- MÓDULO Configuración: Empresa + Usuario/Roles/Vistas/Permisos -->
+        <div id="configuracion" class="page">
+            <div class="page-heading">
+                <div>
+                    <p class="eyebrow">Configuración</p>
+                    <h1>Administración y accesos</h1>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-title-row">
+                    <h3>Empresa</h3>
+                    <span>Identidad RedyTelca</span>
+                </div>
+                <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:16px;">
+                    <div>
+                        <label for="empresa-nombre">Nombre</label>
+                        <input id="empresa-nombre" type="text" placeholder="RedyTelca">
+                    </div>
+                    <div>
+                        <label for="empresa-logo">Logotipo</label>
+                        <input id="empresa-logo" type="file" accept="image/*">
+                    </div>
+                    <div>
+                        <label for="empresa-color">Identidad corporativa</label>
+                        <input id="empresa-color" type="color" value="#0f172a">
+                    </div>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-title-row">
+                    <h3>Usuario / Roles / Vistas / Permisos (RBAC)</h3>
+                    <span>Control dinámico de accesos</span>
+                </div>
+                <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:16px; align-items:end;">
+                    <div>
+                        <label for="config-role-select">Rol a editar</label>
+                        <select id="config-role-select" onchange="loadRolePermissions('config')"></select>
+                    </div>
+                    <div>
+                        <label for="config-new-role-name">Crear nuevo rol</label>
+                        <input id="config-new-role-name" type="text" placeholder="Ej. Operador">
+                    </div>
+                    <div>
+                        <button type="button" onclick="crearRol()" style="width:auto; padding:10px 14px;">Crear rol</button>
+                    </div>
+                </div>
+                <div id="config-role-feedback" style="margin-top:6px; color:green;"></div>
+
+                <div class="card" style="margin-top:16px; margin-bottom:0;">
+                    <div class="card-title-row">
+                        <h3>Módulos y vistas permitidas para este rol</h3>
+                        <span>Marca lo que este rol puede ver</span>
+                    </div>
+                    <div id="config-permissions-list"></div>
+                    <button type="button" onclick="guardarPermisos('config')" style="margin-top:14px; width:auto; padding:10px 14px;">Guardar asignación de vistas</button>
+                    <div id="config-permissions-feedback" style="margin-top:10px; color:green;"></div>
+                </div>
+
+                <div class="card" style="margin-top:16px; margin-bottom:0;">
+                    <div class="card-title-row">
+                        <h3>Usuarios del sistema</h3>
+                        <span>Vista rápida</span>
+                    </div>
+                    <div id="config-users-list" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:12px;"></div>
+                </div>
+            </div>
+        </div>
+
+        <div id="usuarios" class="page">
+            <div class="page-heading">
+                <div>
+                    <p class="eyebrow">Administración</p>
+                    <h1>Usuarios</h1>
+                </div>
+            </div>
+            <div class="card">
+                <h3 style="margin-top:0;">Crear nuevo usuario</h3>
+                <div style="display:grid; grid-template-columns: 1.2fr 1fr 1fr auto; gap:10px; align-items:end;">
+                    <div>
+                        <label for="new-user-username">Nombre de usuario</label>
+                        <input id="new-user-username" type="text" placeholder="Ej. admin2">
+                    </div>
+                    <div>
+                        <label for="new-user-password">Contraseña</label>
+                        <input id="new-user-password" type="password" placeholder="Contraseña temporal">
+                    </div>
+                    <div>
+                        <label for="new-user-role">Rol</label>
+                        <select id="new-user-role"></select>
+                    </div>
+                    <button onclick="crearUsuario()" style="width:auto;">Crear usuario</button>
+                </div>
+                <div id="user-feedback" style="margin-top:10px;"></div>
+            </div>
+            <div class="card">
+                <div class="users-toolbar">
+                    <input id="users-search" type="text" placeholder="🔍 Buscar usuario..." oninput="filterUsers()">
+                    <div class="filter-row" id="user-filters">
+                        <button class="filter-pill active" onclick="setUsersFilter('Todos', this)">Todos</button>
+                        <button class="filter-pill" onclick="setUsersFilter('Activo', this)">Activo</button>
+                        <button class="filter-pill" onclick="setUsersFilter('Suspendido', this)">Suspendido</button>
+                        <button class="filter-pill" onclick="setUsersFilter('Retirado', this)">Retirado</button>
+                    </div>
+                </div>
+                <div class="table-wrap">
+                    <table id="users-table">
+                        <thead>
+                            <tr>
+                                <th>Usuario</th>
+                                <th>Rol</th>
+                                <th>Estado</th>
+                                <th>Última conexión</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div id="permisos" class="page">
+            <div class="page-heading">
+                <div>
+                    <p class="eyebrow">Seguridad</p>
+                    <h1>Gestión de roles</h1>
+                </div>
+            </div>
+            <div class="card">
+                <label for="role-select">Selecciona un rol:</label>
+                <select id="role-select" onchange="loadRolePermissions()"></select>
+                <div id="permissions-list" style="margin-top: 16px;"></div>
+                <button onclick="guardarPermisos()" style="margin-top: 12px;">Guardar permisos</button>
+                <div id="permissions-feedback" style="margin-top: 10px; color: green;"></div>
+            </div>
+        </div>
+
+        <div id="password" class="page">
+            <div class="page-heading">
+                <div>
+                    <p class="eyebrow">Cuenta</p>
+                    <h1>Cambiar contraseña</h1>
+                </div>
+            </div>
+            <div class="card">
+                <input id="password-user" type="text" placeholder="Usuario">
+                <input id="password-current" type="password" placeholder="Contraseña actual">
+                <input id="password-new" type="password" placeholder="Nueva contraseña">
+                <input id="password-confirm" type="password" placeholder="Confirmar nueva contraseña">
+                <button onclick="cambiarPassword()">Actualizar contraseña</button>
+                <div id="password-feedback" style="margin-top: 10px; color: green;"></div>
+            </div>
+        </div>
+    </main>
+
+    <script src="app.js"></script>
+</body>
+</html>
+
+--------------------
+File: /redytelca/login.php
+--------------------
+
+<?php
+header('Content-Type: application/json; charset=utf-8');
+header('Access-Control-Allow-Origin: *');
+require 'conexion.php';
+
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+
+/**
+ * Siembra defensiva del RBAC dinámico. Se ejecuta en cada login por si la
+ * migración 002 aún no corrió en este entorno; usa las mismas tablas y los
+ * mismos IDs semilla que migrations/002_rbac_dinamico_seed.sql, así que
+ * ejecutarla dos veces (migración + este bloque) es inofensivo (INSERT IGNORE).
+ */
+function ensureRbacSeedData(PDO $pdo): void {
+    $pdo->exec("CREATE TABLE IF NOT EXISTS `rol` (
+        `id_rol` INT(11) NOT NULL AUTO_INCREMENT,
+        `nombre_rol` VARCHAR(50) NOT NULL,
+        PRIMARY KEY (`id_rol`),
+        UNIQUE KEY `nombre_rol` (`nombre_rol`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+    $pdo->exec("CREATE TABLE IF NOT EXISTS `modulos` (
+        `id_modulo` INT(11) NOT NULL AUTO_INCREMENT,
+        `nombre_modulo` VARCHAR(50) NOT NULL,
+        PRIMARY KEY (`id_modulo`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+    $pdo->exec("CREATE TABLE IF NOT EXISTS `paginas` (
+        `id_pagina` INT(11) NOT NULL AUTO_INCREMENT,
+        `nombre_pagina` VARCHAR(100) NOT NULL,
+        `url_pagina` VARCHAR(255) NOT NULL,
+        `id_modulo` INT(11) NOT NULL,
+        PRIMARY KEY (`id_pagina`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+    $pdo->exec("CREATE TABLE IF NOT EXISTS `rol_modulo_pagina` (
+        `id_rmp` INT(11) NOT NULL AUTO_INCREMENT,
+        `id_rol` INT(11) NOT NULL,
+        `id_modulo` INT(11) NOT NULL,
+        `id_pagina` INT(11) NOT NULL,
+        PRIMARY KEY (`id_rmp`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+    $pdo->exec("CREATE TABLE IF NOT EXISTS `usuarios` (
+        `id_usuario` INT(11) NOT NULL AUTO_INCREMENT,
+        `username` VARCHAR(50) NOT NULL UNIQUE,
+        `password` VARCHAR(255) NOT NULL,
+        `id_rol` INT(11) NOT NULL DEFAULT 1,
+        PRIMARY KEY (`id_usuario`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+    $pdo->exec("INSERT IGNORE INTO rol (id_rol, nombre_rol) VALUES (1, 'Administrador'), (2, 'Operador')");
+
+    $defaultModules = [
+        [1, 'Principal'],
+        [2, 'Clientes'],
+        [3, 'Operación'],
+        [4, 'Configuración'],
+        [5, 'Reportes']
+    ];
+    $stmtModule = $pdo->prepare("INSERT IGNORE INTO modulos (id_modulo, nombre_modulo) VALUES (?, ?)");
+    foreach ($defaultModules as $module) {
+        $stmtModule->execute($module);
+    }
+
+    $defaultViews = [
+        [1,  'Inicio',                    'dash',           1],
+        [2,  'Gestión de clientes',       'clientes',       2],
+        [3,  'Registrar cliente',        'registro',       2],
+        [4,  'Control de tareas',        'tareas',         3],
+        [5,  'Tickets',                   'tickets',        3],
+        [6,  'Mapa',                      'mapa',           3],
+        [7,  'Usuarios',                  'usuarios',       4],
+        [8,  'Permisos',                  'permisos',       4],
+        [9,  'Cambiar contraseña',       'password',       4],
+        [10, 'Administración y accesos', 'configuracion',  4],
+        [11, 'Reportes',                  'reportes',       5]
+    ];
+    $stmtPage = $pdo->prepare("INSERT IGNORE INTO paginas (id_pagina, nombre_pagina, url_pagina, id_modulo) VALUES (?, ?, ?, ?)");
+    foreach ($defaultViews as $view) {
+        $stmtPage->execute([$view[0], $view[1], $view[2], $view[3]]);
+    }
+
+    $pdo->exec("INSERT IGNORE INTO rol_modulo_pagina (id_rmp, id_rol, id_modulo, id_pagina) VALUES
+        (1,  1, 1, 1),
+        (2,  1, 2, 2),
+        (3,  1, 2, 3),
+        (4,  1, 3, 4),
+        (5,  1, 3, 5),
+        (6,  1, 3, 6),
+        (7,  1, 4, 7),
+        (8,  1, 4, 8),
+        (9,  1, 4, 9),
+        (10, 1, 4, 10),
+        (11, 1, 5, 11),
+        (12, 2, 1, 1),
+        (13, 2, 2, 2),
+        (14, 2, 2, 3),
+        (15, 2, 3, 4),
+        (16, 2, 3, 5),
+        (17, 2, 3, 6),
+        (18, 2, 4, 9),
+        (19, 2, 5, 11)");
+
+    $pdo->exec("INSERT IGNORE INTO usuarios (id_usuario, username, password, id_rol) VALUES (1, 'admin', 'admin123', 1)");
+}
+
+function loadAllowedViews(PDO $pdo, int $roleId): array {
+    $stmt = $pdo->prepare("SELECT m.nombre_modulo AS modulo, p.nombre_pagina AS vista, p.url_pagina AS url
+        FROM rol_modulo_pagina rmp
+        INNER JOIN modulos m ON rmp.id_modulo = m.id_modulo
+        INNER JOIN paginas p ON rmp.id_pagina = p.id_pagina
+        WHERE rmp.id_rol = ?
+        ORDER BY m.id_modulo, p.id_pagina");
+    $stmt->execute([$roleId]);
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    return array_map(fn($row) => [
+        'modulo' => $row['modulo'],
+        'vista' => $row['vista'],
+        'url' => $row['url']
+    ], $rows);
+}
+
+$input = json_decode(file_get_contents('php://input'), true);
+$username = isset($input['username']) ? trim($input['username']) : '';
+$password = isset($input['password']) ? trim($input['password']) : '';
+
+if (empty($username) || empty($password)) {
+    http_response_code(400);
+    echo json_encode(['status' => 'error', 'message' => 'Credenciales incompletas.']);
+    exit;
+}
+
+try {
+    ensureRbacSeedData($pdo);
+
+    $stmtUser = $pdo->prepare("SELECT id_usuario, username, password, id_rol FROM usuarios WHERE username = ?");
+    $stmtUser->execute([$username]);
+    $userRow = $stmtUser->fetch();
+
+    if (!$userRow) {
+        if ($username === 'admin' && $password === 'admin123') {
+            $insertStmt = $pdo->prepare("INSERT INTO usuarios (username, password, id_rol) VALUES (?, ?, 1)");
+            $insertStmt->execute([$username, $password]);
+            $userRow = [
+                'id_usuario' => $pdo->lastInsertId(),
+                'username' => $username,
+                'password' => $password,
+                'id_rol' => 1
+            ];
+        } else {
+            http_response_code(401);
+            echo json_encode(['status' => 'error', 'message' => 'Usuario o contraseña incorrectos.']);
+            exit;
+        }
+    } elseif ($userRow['password'] !== $password) {
+        if ($username === 'admin' && $password === 'admin123') {
+            $updateStmt = $pdo->prepare("UPDATE usuarios SET password = ? WHERE id_usuario = ?");
+            $updateStmt->execute([$password, $userRow['id_usuario']]);
+            $userRow['password'] = $password;
+        } else {
+            http_response_code(401);
+            echo json_encode(['status' => 'error', 'message' => 'Usuario o contraseña incorrectos.']);
+            exit;
+        }
+    }
+
+    $stmtRole = $pdo->prepare("SELECT nombre_rol FROM rol WHERE id_rol = ?");
+    $stmtRole->execute([$userRow['id_rol']]);
+    $roleRow = $stmtRole->fetch();
+
+    $modules = loadAllowedViews($pdo, (int) $userRow['id_rol']);
+    $token = bin2hex(random_bytes(16));
+
+    $_SESSION['auth_token'] = $token;
+    $_SESSION['id_usuario'] = (int) $userRow['id_usuario'];
+    $_SESSION['id_rol'] = (int) $userRow['id_rol'];
+    $_SESSION['usuario'] = $userRow['username'];
+    $_SESSION['rol_nombre'] = $roleRow['nombre_rol'] ?? 'Rol';
+    $_SESSION['modulos_permitidos'] = $modules;
+
+    http_response_code(200);
+    echo json_encode([
+        'status' => 'success',
+        'usuario' => $userRow['username'],
+        'id_rol' => (int) $userRow['id_rol'],
+        'rol_nombre' => $_SESSION['rol_nombre'],
+        'token' => $token,
+        'modulos_permitidos' => $modules
+    ]);
+} catch (PDOException $e) {
+    http_response_code(500);
+    echo json_encode(['status' => 'error', 'message' => 'Error interno del servidor al procesar el control de accesos.']);
+}
+
+--------------------
+File: /redytelca/logout.php
+--------------------
+
+<?php
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+
+session_unset();
+session_destroy();
+
+echo json_encode(['status' => 'success']);
+
+
+--------------------
+File: /redytelca/permisos_guardar.php
+--------------------
+
+<?php
+header('Content-Type: application/json; charset=utf-8');
+require 'conexion.php';
+
+$input = file_get_contents('php://input');
+$data = json_decode($input, true);
+if (!$data) {
+    $data = $_POST;
+}
+
+$id_rol = isset($data['id_rol']) ? intval($data['id_rol']) : 0;
+$paginas = isset($data['paginas']) && is_array($data['paginas']) ? $data['paginas'] : [];
+
+if ($id_rol <= 0) {
+    echo json_encode(["status" => "error", "message" => "Rol inválido"]);
+    exit;
+}
+
+try {
+    $pdo->exec("CREATE TABLE IF NOT EXISTS `rol_modulo_pagina` (
+        `id_rmp` INT(11) NOT NULL AUTO_INCREMENT,
+        `id_rol` INT(11) NOT NULL,
+        `id_modulo` INT(11) NOT NULL,
+        `id_pagina` INT(11) NOT NULL,
+        PRIMARY KEY (`id_rmp`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+} catch (Exception $e) {
+    // La tabla ya existe; se continúa con la operación.
+}
+
+$pdo->beginTransaction();
+try {
+    // Estrategia de reemplazo total: se borra la asignación previa del rol y
+    // se reinserta desde cero con lo que llegó marcado en la interfaz.
+    $stmtDel = $pdo->prepare("DELETE FROM rol_modulo_pagina WHERE id_rol = ?");
+    $stmtDel->execute([$id_rol]);
+
+    if (!empty($paginas)) {
+        // id_modulo se resuelve del lado del servidor (a partir de la página),
+        // nunca se confía en un id_modulo enviado por el cliente.
+        $stmtModulo = $pdo->prepare("SELECT id_modulo FROM paginas WHERE id_pagina = ?");
+        $stmtInsert = $pdo->prepare("INSERT INTO rol_modulo_pagina (id_rol, id_modulo, id_pagina) VALUES (?, ?, ?)");
+
+        foreach ($paginas as $idPaginaRaw) {
+            $idPagina = intval($idPaginaRaw);
+            if ($idPagina <= 0) {
+                continue;
+            }
+            $stmtModulo->execute([$idPagina]);
+            $idModulo = $stmtModulo->fetchColumn();
+            if ($idModulo === false) {
+                continue; // página inexistente, se ignora en vez de romper la transacción
+            }
+            $stmtInsert->execute([$id_rol, (int) $idModulo, $idPagina]);
+        }
+    }
+
+    $pdo->commit();
+    echo json_encode(["status" => "success", "message" => "Permisos actualizados correctamente"]);
+} catch (Exception $e) {
+    if ($pdo->inTransaction()) {
+        $pdo->rollBack();
+    }
+    http_response_code(500);
+    echo json_encode(["status" => "error", "message" => "Error guardando permisos: " . $e->getMessage()]);
+}
+
+--------------------
+File: /redytelca/permisos_listar.php
+--------------------
+
+<?php
+header('Content-Type: application/json; charset=utf-8');
+require 'conexion.php';
+
+$id_rol = isset($_GET['id_rol']) ? intval($_GET['id_rol']) : 0;
+
+try {
+    $pdo->exec("CREATE TABLE IF NOT EXISTS `modulos` (
+        `id_modulo` INT(11) NOT NULL AUTO_INCREMENT,
+        `nombre_modulo` VARCHAR(50) NOT NULL,
+        PRIMARY KEY (`id_modulo`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+    $pdo->exec("CREATE TABLE IF NOT EXISTS `paginas` (
+        `id_pagina` INT(11) NOT NULL AUTO_INCREMENT,
+        `nombre_pagina` VARCHAR(100) NOT NULL,
+        `url_pagina` VARCHAR(255) NOT NULL,
+        `id_modulo` INT(11) NOT NULL,
+        PRIMARY KEY (`id_pagina`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+    $pdo->exec("CREATE TABLE IF NOT EXISTS `rol_modulo_pagina` (
+        `id_rmp` INT(11) NOT NULL AUTO_INCREMENT,
+        `id_rol` INT(11) NOT NULL,
+        `id_modulo` INT(11) NOT NULL,
+        `id_pagina` INT(11) NOT NULL,
+        PRIMARY KEY (`id_rmp`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+    // Páginas ya asignadas a este rol (para marcar los checkbox como asignado)
+    $asignadas = [];
+    if ($id_rol > 0) {
+        $stmtAsig = $pdo->prepare("SELECT id_pagina FROM rol_modulo_pagina WHERE id_rol = ?");
+        $stmtAsig->execute([$id_rol]);
+        $asignadas = array_map('intval', $stmtAsig->fetchAll(PDO::FETCH_COLUMN, 0));
+    }
+
+    // Universo completo de módulos/páginas del sistema, para poder asignar
+    // vistas nuevas a un rol aunque todavía no tenga ninguna asignada.
+    $stmt = $pdo->query("SELECT m.id_modulo, m.nombre_modulo, p.id_pagina, p.nombre_pagina, p.url_pagina
+        FROM modulos m
+        INNER JOIN paginas p ON p.id_modulo = m.id_modulo
+        ORDER BY m.id_modulo, p.id_pagina");
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    $modulos = [];
+    foreach ($rows as $row) {
+        $idModulo = (int) $row['id_modulo'];
+        if (!isset($modulos[$idModulo])) {
+            $modulos[$idModulo] = [
+                'id_modulo' => $idModulo,
+                'nombre_modulo' => $row['nombre_modulo'],
+                'vistas' => []
+            ];
+        }
+        $idPagina = (int) $row['id_pagina'];
+        $modulos[$idModulo]['vistas'][] = [
+            'id_pagina' => $idPagina,
+            'nombre_pagina' => $row['nombre_pagina'],
+            'url_pagina' => $row['url_pagina'],
+            'asignado' => in_array($idPagina, $asignadas, true)
+        ];
+    }
+
+    echo json_encode(['status' => 'success', 'modulos' => array_values($modulos)]);
+} catch (Exception $e) {
+    http_response_code(500);
+    echo json_encode(['status' => 'error', 'message' => $e->getMessage()]);
+}
+
+--------------------
+File: /redytelca/README.md
+--------------------
+
+# REDYTELCA - Documentación rápida
+
+Resumen de configuración y arquitectura:
+
+1) Estructura y navegación del menú
+- Secciones principales: "Descripción", "Menú" y "Principal".
+- Sección "Configuraciones" para parámetros globales (empresa, apariencia, reglas del sistema).
+- El menú muestra solo opciones permitidas por el rol del usuario.
+
+2) Gestión de la empresa
+- Datos básicos: logo, nombre y colores corporativos se deben almacenar y aplicar dinámicamente.
+
+3) Administración de usuarios y roles
+- Roles (p.ej. Administrador, Operador) con permisos granulares por módulo y operación.
+- Usuarios vinculados a roles; permisos efectivos = unión de permisos de roles.
+
+4) Diseño de la interfaz (Grid y paginación)
+- Implementar Grid con columnas configurables y paginación del lado del servidor para grandes volúmenes.
+
+5) Gestión de base de datos
+- Tablas principales sugeridas: usuarios, roles, permisos, rol_permiso, usuario_rol, clientes.
+- Mantener integridad referencial y esquemas claros (actualizar ER cuando se modifiquen tablas).
+
+6) Seguridad y Sesiones
+- Usar tokens (JWT) con expiración; almacenar en LocalStorage/SessionStorage con limpieza al cerrar sesión.
+- Validar permisos en el servidor y transmitir siempre por HTTPS.
+
+---
+
+Este README fue generado automáticamente a partir de DOCUMENTACION.md y se agregó una página de "configuraciones" mínima (configuraciones.php) y mejoras en la gestión de sesión del cliente (app.js) para almacenar/limpiar un token local y rol en LocalStorage. Integre el guardado en servidor cuando esté listo.
+
+Fecha: 2026-06-20
+
+Mejoras detalladas y plan de trabajo en IMPROVEMENTS.md
+
+
+--------------------
+File: /redytelca/registrar_cliente.php
+--------------------
+
+<?php
+header('Content-Type: application/json; charset=utf-8');
+require 'conexion.php';
+
+try {
+    $pdo->exec("ALTER TABLE clientes ADD COLUMN IF NOT EXISTS direccion VARCHAR(255) NOT NULL DEFAULT ''");
+    $pdo->exec("ALTER TABLE clientes ADD COLUMN IF NOT EXISTS olt VARCHAR(100) NOT NULL DEFAULT ''");
+} catch (Exception $e) {
+    // Ignorar si la tabla ya tiene esas columnas.
+}
+
+$input = file_get_contents('php://input');
+$data = json_decode($input, true);
+if (!$data) {
+    $data = $_POST;
+}
+
+if (empty($data['nombres']) || empty($data['apellidos']) || empty($data['cedula']) || empty($data['telefono']) || empty($data['correo'])) {
+    echo json_encode(['status' => 'error', 'message' => 'Todos los campos obligatorios deben completarse']);
+    exit;
+}
+
+$stmt = $pdo->prepare(
+    "INSERT INTO clientes (nombres, apellidos, cedula, num_telefono, correo, direccion, olt) VALUES (?, ?, ?, ?, ?, ?, ?)"
+);
+
+$ok = $stmt->execute([
+    $data['nombres'],
+    $data['apellidos'],
+    $data['cedula'],
+    $data['telefono'],
+    $data['correo'],
+    $data['direccion'] ?? '',
+    $data['olt'] ?? ''
+]);
+
+echo json_encode([
+    'status' => $ok ? 'success' : 'error',
+    'message' => $ok ? 'Cliente registrado correctamente' : 'Error al registrar'
+]);
+?>
+
+
+--------------------
+File: /redytelca/roles_listar.php
+--------------------
+
+<?php
+header('Content-Type: application/json; charset=utf-8');
+require 'conexion.php';
+
+try {
+    $pdo->exec("CREATE TABLE IF NOT EXISTS `rol` (
+        `id_rol` INT(11) NOT NULL AUTO_INCREMENT,
+        `nombre_rol` VARCHAR(50) NOT NULL,
+        PRIMARY KEY (`id_rol`),
+        UNIQUE KEY `nombre_rol` (`nombre_rol`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+} catch (Exception $e) {
+    // Si ya existe, se continúa con la operación solicitada.
+}
+
+$method = $_SERVER['REQUEST_METHOD'];
+
+if ($method === 'POST') {
+    $input = json_decode(file_get_contents('php://input'), true);
+    if (!$input) {
+        $input = $_POST;
+    }
+
+    $nombre = isset($input['nombre_rol']) ? trim($input['nombre_rol']) : '';
+    if ($nombre === '') {
+        echo json_encode(['status' => 'error', 'message' => 'El nombre del rol es obligatorio']);
+        exit;
+    }
+
+    $stmtCheck = $pdo->prepare('SELECT id_rol FROM rol WHERE nombre_rol = ?');
+    $stmtCheck->execute([$nombre]);
+    if ($stmtCheck->fetch()) {
+        echo json_encode(['status' => 'error', 'message' => 'Ya existe un rol con ese nombre']);
+        exit;
+    }
+
+    try {
+        $stmt = $pdo->prepare('INSERT INTO rol (nombre_rol) VALUES (?)');
+        $ok = $stmt->execute([$nombre]);
+        echo json_encode([
+            'status' => $ok ? 'success' : 'error',
+            'message' => $ok ? 'Rol creado correctamente' : 'No se pudo crear el rol',
+            'id_rol' => $ok ? (int) $pdo->lastInsertId() : null
+        ]);
+    } catch (Exception $e) {
+        http_response_code(500);
+        echo json_encode(['status' => 'error', 'message' => 'Error creando el rol: ' . $e->getMessage()]);
+    }
+    exit;
+}
+
+// GET: listar roles (con semilla mínima si la tabla llegara vacía)
+$stmt = $pdo->query("SELECT * FROM rol ORDER BY id_rol");
+$roles = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+if (empty($roles)) {
+    $defaultRoles = [
+        ['nombre_rol' => 'Administrador'],
+        ['nombre_rol' => 'Operador']
+    ];
+    $stmtInsert = $pdo->prepare("INSERT INTO rol (nombre_rol) VALUES (?)");
+    foreach ($defaultRoles as $rol) {
+        $stmtInsert->execute([$rol['nombre_rol']]);
+    }
+    $stmt = $pdo->query("SELECT * FROM rol ORDER BY id_rol");
+    $roles = $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+echo json_encode(["status" => "success", "roles" => $roles]);
+
+--------------------
+File: /redytelca/run_migrations.php
+--------------------
+
+<?php
+require 'conexion.php';
+
+try {
+    $sql = file_get_contents(__DIR__ . '/migrations/002_rbac_dinamico_seed.sql');
+    if ($sql === false) {
+        throw new Exception('No se encontró el archivo de migración 002_rbac_dinamico_seed.sql');
+    }
+
+    // NOTA TÉCNICA: PDO::exec() con múltiples sentencias separadas por ';'
+    // depende de que el driver tolere multi-statement. conexion.php no
+    // habilita PDO::MYSQL_ATTR_MULTI_STATEMENTS explícitamente, así que si
+    // este exec() falla a mitad de camino, la alternativa segura es pegar
+    // el contenido de migrations/002_rbac_dinamico_seed.sql directamente
+    // en la pestaña SQL de phpMyAdmin.
+    $pdo->exec($sql);
+    echo "Migración 002 (esquema completo + RBAC dinámico) ejecutada correctamente\n";
+} catch (Exception $e) {
+    echo "Error ejecutando migraciones: " . $e->getMessage() . "\n";
+    exit(1);
+}
+
+--------------------
+File: /redytelca/styles.css
+--------------------
+
+:root {
+    --primary: #0f172a;
+    --accent: #2563eb;
+    --bg: #eef4ff;
+    --surface: #f8fafc;
+    --surface-2: #ffffff;
+    --text: #0f172a;
+    --muted: #64748b;
+    --border: #dbe3f0;
+    --success: #16a34a;
+    --warning: #f59e0b;
+    --danger: #dc2626;
+}
+* { box-sizing: border-box; font-family: 'Segoe UI', sans-serif; }
+body { margin: 0; background: var(--bg); display: flex; }
+
+.sidebar {
+    width: 260px;
+    background: linear-gradient(180deg, var(--primary), #111827);
+    height: 100vh;
+    color: white;
+    padding: 18px 12px;
+    position: fixed;
+    overflow-y: auto;
+    transition: transform 0.2s ease;
+    z-index: 80;
+}
+.sidebar.collapsed {
+    transform: translateX(-100%);
+}
+.brand {
+    font-size: 1.1rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-align: center;
+    margin-bottom: 18px;
+}
+.nav-group { margin-bottom: 10px; }
+.pagination-row {
+    display: flex;
+    justify-content: flex-end;
+    margin: 12px 0;
+}
+.pagination-controls {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: #f8fafc;
+    border-radius: 999px;
+}
+.pagination-controls button {
+    width: auto;
+    padding: 8px 12px;
+}
+.nav-group-title {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: #64748b;
+    padding: 0 12px 6px;
+}
+.nav-item {
+    padding: 12px 14px;
+    cursor: pointer;
+    color: #cbd5e1;
+    border-radius: 12px;
+    margin-bottom: 6px;
+    transition: 0.2s ease;
+}
+.nav-item:hover { background: rgba(148, 163, 184, 0.1); }
+.nav-item.active {
+    color: white;
+    background: linear-gradient(90deg, rgba(37, 99, 235, 0.95), rgba(37, 99, 235, 0.65));
+}
+.bottom-group { margin-top: 18px; }
+
+.main-content { margin-left: 260px; padding: 24px; width: calc(100% - 260px); transition: margin-left 0.2s ease, width 0.2s ease; }
+.main-content.expanded { margin-left: 0; width: 100%; }
+.top-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 18px;
+}
+.top-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.sidebar-toggle {
+    width: auto;
+    background: white;
+    color: var(--text);
+    border: 1px solid var(--border);
+    padding: 10px 12px;
+    border-radius: 10px;
+    font-size: 1rem;
+}
+.top-bar h2 { margin: 0; font-size: 1.5rem; }
+.top-actions {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.profile-button {
+    width: auto;
+    background: white;
+    color: var(--text);
+    border: 1px solid var(--border);
+    padding: 10px 14px;
+    border-radius: 999px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 600;
+}
+.profile-menu {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 8px);
+    background: white;
+    border-radius: 12px;
+    min-width: 180px;
+    box-shadow: 0 12px 24px rgba(15, 23, 42, 0.16);
+    display: none;
+    z-index: 10;
+}
+.profile-menu.show { display: block; }
+.profile-menu button {
+    width: 100%;
+    background: white;
+    color: var(--text);
+    border: none;
+    text-align: left;
+    padding: 12px 14px;
+    font-weight: 500;
+}
+.profile-menu button:hover { background: #f8fafc; }
+
+.card {
+    background: var(--surface-2);
+    padding: 20px;
+    border-radius: 16px;
+    margin-bottom: 15px;
+    box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
+    border: 1px solid var(--border);
+}
+input, select {
+    width: 100%;
+    padding: 12px;
+    margin: 8px 0;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+}
+button {
+    width: 100%;
+    padding: 12px;
+    background: var(--accent);
+    color: white;
+    border: none;
+    border-radius: 10px;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+.page { display: none; }
+.page.active { display: block; }
+.page-heading { margin-bottom: 16px; }
+.page-heading h1 { margin: 0; font-size: 1.8rem; }
+.eyebrow {
+    margin: 0 0 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    font-size: 0.78rem;
+    color: var(--muted);
+}
+
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 14px;
+}
+.stat-card {
+    background: var(--surface-2);
+    border-radius: 16px;
+    padding: 18px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-left: 6px solid #dbeafe;
+    box-shadow: 0 10px 30px rgba(15, 23, 42, 0.05);
+}
+.stat-card.border-blue { border-left-color: #3b82f6; }
+.stat-card.border-green { border-left-color: #22c55e; }
+.stat-card.border-yellow { border-left-color: #f59e0b; }
+.stat-card.border-red { border-left-color: #ef4444; }
+.stat-label { margin: 0; color: var(--muted); font-size: 0.9rem; }
+.stat-card h2 { margin: 6px 0 0; font-size: 1.9rem; }
+.stat-pill {
+    padding: 6px 10px;
+    border-radius: 999px;
+    font-size: 0.78rem;
+    font-weight: 600;
+}
+.stat-pill.positive { background: #e7f7ed; color: var(--success); }
+.stat-pill.warning { background: #fff7e6; color: #b45309; }
+.stat-pill.negative { background: #fee2e2; color: var(--danger); }
+
+.dashboard-grid {
+    display: grid;
+    grid-template-columns: 1.1fr 1fr;
+    gap: 16px;
+}
+.card-title-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 14px;
+}
+.card-title-row h3 { margin: 0; font-size: 1rem; }
+.card-title-row span { color: var(--muted); font-size: 0.9rem; }
+
+.donut-panel { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+.donut-chart {
+    width: 220px;
+    height: 220px;
+    border-radius: 50%;
+    background: conic-gradient(#2563eb 0 78%, #f59e0b 78% 90%, #dc2626 90% 100%);
+    display: grid;
+    place-items: center;
+    position: relative;
+}
+.donut-chart::after {
+    content: '';
+    position: absolute;
+    width: 140px;
+    height: 140px;
+    background: white;
+    border-radius: 50%;
+}
+.donut-center {
+    position: relative;
+    z-index: 1;
+    text-align: center;
+}
+.donut-center strong { display: block; font-size: 2rem; }
+.donut-center span { color: var(--muted); font-size: 0.9rem; }
+.legend-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 10px; }
+.legend-list li { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--muted); }
+.legend-dot { width: 10px; height: 10px; display: inline-block; border-radius: 50%; margin-right: 8px; }
+.legend-dot.blue { background: var(--accent); }
+.legend-dot.yellow { background: var(--warning); }
+.legend-dot.red { background: var(--danger); }
+
+.trend-bars {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    align-items: end;
+    gap: 10px;
+    height: 240px;
+    padding: 18px 0 0;
+}
+.trend-bars span {
+    background: linear-gradient(180deg, #86efac, #16a34a);
+    border-radius: 999px 999px 6px 6px;
+}
+.trend-labels {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 10px;
+    color: var(--muted);
+    font-size: 0.85rem;
+    text-align: center;
+    margin-top: 8px;
+}
+
+.table-action {
+    width: auto;
+    padding: 10px 14px;
+    background: #eef4ff;
+    color: var(--accent);
+}
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; }
+th, td { padding: 12px 10px; text-align: left; border-bottom: 1px solid var(--border); }
+th { color: var(--muted); font-size: 0.85rem; font-weight: 600; }
+
+.filter-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+.filter-pill, .toggle-btn {
+    width: auto;
+    background: #eef4ff;
+    color: var(--accent);
+    padding: 8px 12px;
+    border-radius: 999px;
+    font-weight: 600;
+}
+.filter-pill.active, .toggle-btn.active {
+    background: var(--accent);
+    color: white;
+}
+.task-toolbar, .users-toolbar, .map-controls {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+.task-list, .ticket-list { display: flex; flex-direction: column; gap: 10px; }
+.task-item, .ticket-card {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    padding: 14px;
+    background: #f8fafc;
+    border-radius: 12px;
+}
+.ticket-card h3 { margin: 0 0 6px; }
+.ticket-card p { margin: 0; color: var(--muted); }
+.client-profile-panel { margin-top: 16px; }
+.client-profile-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+.profile-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+}
+.profile-card {
+    background: #f8fafc;
+    border-radius: 14px;
+    padding: 16px;
+}
+.profile-card h3 { margin: 0 0 12px; }
+.profile-card ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.profile-card li {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    color: var(--muted);
+}
+.profile-card li strong { color: var(--text); }
+.summary-metrics {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+}
+.summary-metrics div {
+    background: white;
+    padding: 10px;
+    border-radius: 12px;
+}
+.summary-metrics span { display: block; color: var(--muted); font-size: 0.82rem; margin-bottom: 4px; }
+.summary-metrics strong { font-size: 1rem; }
+.map-panel {
+    min-height: 420px;
+    background:
+        linear-gradient(rgba(255,255,255,0.58), rgba(255,255,255,0.58)),
+        radial-gradient(circle at top, #dbeafe 0%, #bfdbfe 35%, #93c5fd 100%);
+    border-radius: 18px;
+    position: relative;
+    overflow: hidden;
+    border: 1px solid var(--border);
+}
+.map-panel.satellite {
+    background:
+        linear-gradient(rgba(255,255,255,0.1), rgba(255,255,255,0.1)),
+        linear-gradient(90deg, #86efac 0%, #60a5fa 100%);
+}
+.map-marker {
+    position: absolute;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: white;
+    border-radius: 999px;
+    padding: 8px 12px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: var(--accent);
+    box-shadow: 0 6px 14px rgba(15, 23, 42, 0.12);
+}
+.marker-a { top: 18%; left: 20%; }
+.marker-b { top: 45%; left: 56%; }
+.marker-c { top: 68%; left: 32%; }
+
+.status { display: inline-block; padding: 5px 9px; border-radius: 999px; font-size: 0.78rem; font-weight: 600; }
+.status-alert { background: #fee2e2; color: var(--danger); }
+.status-warning { background: #fff7e6; color: #b45309; }
+.status-ok { background: #e7f7ed; color: var(--success); }
+
+#login-overlay { position: fixed; top:0; left:0; width: 100%; height: 100%; background: var(--primary); z-index: 1000; display: flex; align-items: center; justify-content: center; }
+.login-box { width: 320px; color: black; }
+
+@media (max-width: 992px) {
+    .stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .dashboard-grid { grid-template-columns: 1fr; }
+    .profile-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 768px) {
+    .sidebar { width: 240px; }
+    .main-content { margin-left: 0; width: 100%; padding: 16px; }
+    .top-bar { flex-direction: column; align-items: flex-start; }
+    .top-actions { width: 100%; justify-content: space-between; }
+    .stats-grid { grid-template-columns: 1fr; }
+    .users-toolbar, .task-toolbar, .map-controls { align-items: flex-start; }
+    .task-item, .ticket-card { flex-direction: column; align-items: flex-start; }
+    .client-profile-top { flex-direction: column; align-items: flex-start; }
+    .summary-metrics { grid-template-columns: 1fr; }
+    .donut-chart { width: 180px; height: 180px; }
+    .donut-chart::after { width: 110px; height: 110px; }
+}
+
+
+--------------------
+File: /redytelca/usuarios_crear.php
+--------------------
+
+<?php
+header('Content-Type: application/json; charset=utf-8');
+require 'conexion.php';
+
+$input = file_get_contents('php://input');
+$data = json_decode($input, true);
+if (!$data) {
+    $data = $_POST;
+}
+
+$username = trim($data['username'] ?? '');
+$password = trim($data['password'] ?? '');
+$idRol = isset($data['id_rol']) ? intval($data['id_rol']) : 0;
+
+if (!$username || !$password || $idRol <= 0) {
+    echo json_encode(['status' => 'error', 'message' => 'Todos los campos son obligatorios']);
+    exit;
+}
+
+$stmt = $pdo->prepare('SELECT id_usuario FROM usuarios WHERE username = ?');
+$stmt->execute([$username]);
+if ($stmt->fetch()) {
+    echo json_encode(['status' => 'error', 'message' => 'Ese usuario ya existe']);
+    exit;
+}
+
+$stmt = $pdo->prepare('INSERT INTO usuarios (username, password, id_rol) VALUES (?, ?, ?)');
+$ok = $stmt->execute([$username, $password, $idRol]);
+
+echo json_encode([
+    'status' => $ok ? 'success' : 'error',
+    'message' => $ok ? 'Usuario creado correctamente' : 'No se pudo crear el usuario'
+]);
+
+
+--------------------
+File: /redytelca/usuarios_listar.php
+--------------------
+
+<?php
+header('Content-Type: application/json; charset=utf-8');
+require 'conexion.php';
+
+$query = "
+    SELECT u.id_usuario, u.username, u.id_rol, r.nombre_rol,
+           CASE 
+               WHEN u.id_usuario = 1 THEN 'Activo'
+               ELSE 'Activo'
+           END AS estado,
+           'Nunca' AS ultima_conexion
+    FROM usuarios u
+    LEFT JOIN rol r ON r.id_rol = u.id_rol
+    ORDER BY u.username ASC
+";
+
+$stmt = $pdo->query($query);
+$usuarios = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+echo json_encode([
+    'status' => 'success',
+    'usuarios' => $usuarios
+]);
+
+

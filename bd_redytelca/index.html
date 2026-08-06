@@ -1,0 +1,1342 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>REDYTELCA Admin</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+    <div id="login-overlay">
+        <div class="card login-box">
+            <div class="login-brand"><img id="login-brand-logo" src="Logos/logo_transparent.png" alt="REDYTELCA" class="login-brand-logo"></div>
+            <h3>Iniciar sesión</h3>
+            <input id="user" type="text" placeholder="Usuario" autocomplete="username">
+            <input id="pass" type="password" placeholder="Contraseña" autocomplete="current-password">
+            <button id="login-button" type="button" onclick="login()">Ingresar</button>
+        </div>
+    </div>
+
+    <div class="sidebar">
+        <div class="brand">
+            <div class="brand-logo-wrap">
+                <img id="sidebar-brand-logo" src="" alt="REDYTELCA" class="brand-logo">
+            </div>
+            <span>REDYTELCA</span>
+        </div>
+        <!-- El menú se pinta dinámicamente desde renderMenu() en app.js -->
+        <div id="sidebar-nav"></div>
+    </div>
+
+    <main class="main-content">
+        <header class="top-bar">
+            <div class="top-left">
+                <button class="sidebar-toggle" onclick="toggleSidebar()" aria-label="Alternar menú lateral">☰</button>
+                <div>
+                    <p class="eyebrow">Operación</p>
+                    <h2 id="page-title">Panel de control</h2>
+                </div>
+            </div>
+            <div class="top-actions">
+                <div class="header-meta">
+                    <span>Estado actual</span>
+                    <strong id="dashboard-date"></strong>
+                </div>
+                <button class="profile-button" onclick="toggleProfileMenu()">
+                    <span id="profile-name-label">Admin</span>
+                    <span class="profile-arrow">▾</span>
+                </button>
+                <div id="profile-menu" class="profile-menu"></div>
+            </div>
+        </header>
+
+        <div id="dash" class="page active">
+            <div class="dashboard-shell">
+                <section class="dashboard-grid" style="grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));">
+                    <div class="card chart-card">
+                        <div class="card-title-row">
+                            <h3>Total clientes</h3>
+                            <button class="table-action" type="button" onclick="showPage('clientes')">Ver clientes</button>
+                        </div>
+                        <div style="display:grid; gap:8px;">
+                            <p class="stat-label">Clientes registrados</p>
+                            <h2 id="preview-clientes-count">0</h2>
+                            <span class="stat-pill positive">Resumen del catálogo</span>
+                        </div>
+                    </div>
+
+                    <div class="card chart-card">
+                        <div class="card-title-row">
+                            <h3>Servicios activos</h3>
+                            <button class="table-action" type="button" onclick="showPage('clientes')">Ver servicios</button>
+                        </div>
+                        <div style="display:grid; gap:8px;">
+                            <p class="stat-label">Activos / total</p>
+                            <h2 id="preview-servicios-count">0</h2>
+                            <div id="preview-servicios-breakdown" class="legend-list"></div>
+                        </div>
+                    </div>
+
+                    <div class="card chart-card">
+                        <div class="card-title-row">
+                            <h3>Contratos</h3>
+                            <button class="table-action" type="button" onclick="showPage('contratos')">Ver contratos</button>
+                        </div>
+                        <div style="display:grid; gap:8px;">
+                            <p class="stat-label">Vigentes y vencidos</p>
+                            <h2 id="preview-contratos-count">0</h2>
+                            <div id="preview-contratos-breakdown" class="legend-list"></div>
+                        </div>
+                    </div>
+
+                    <div class="card chart-card">
+                        <div class="card-title-row">
+                            <h3>Tickets abiertos</h3>
+                            <button class="table-action" type="button" onclick="showPage('tickets', null)">Ver tickets</button>
+                        </div>
+                        <div style="display:grid; gap:8px;">
+                            <p class="stat-label">Sin cerrar</p>
+                            <h2 id="preview-tickets-count">0</h2>
+                            <span class="stat-pill warning">Real de tickets</span>
+                        </div>
+                    </div>
+
+                    <div class="card chart-card">
+                        <div class="card-title-row">
+                            <h3>Tareas pendientes</h3>
+                            <button class="table-action" type="button" onclick="showPage('tareas', null)">Ver tareas</button>
+                        </div>
+                        <div style="display:grid; gap:8px;">
+                            <p class="stat-label">Pendientes</p>
+                            <h2 id="preview-tareas-count">0</h2>
+                            <span class="stat-pill warning">En curso o sin completar</span>
+                        </div>
+                    </div>
+
+                    <div class="card chart-card">
+                        <div class="card-title-row">
+                            <h3>OLTs</h3>
+                            <button class="table-action" type="button" onclick="showPage('olts', null)">Ver OLTs</button>
+                        </div>
+                        <div style="display:grid; gap:8px;">
+                            <p class="stat-label">Resumen de infraestructura</p>
+                            <h2 id="preview-olts-count">0</h2>
+                            <div id="preview-olts-breakdown" class="legend-list"></div>
+                        </div>
+                    </div>
+
+                    <div class="card chart-card">
+                        <div class="card-title-row">
+                            <h3>NAPs</h3>
+                            <button class="table-action" type="button" onclick="showPage('naps', null)">Ver NAPs</button>
+                        </div>
+                        <div style="display:grid; gap:8px;">
+                            <p class="stat-label">Resumen de puertos</p>
+                            <h2 id="preview-naps-count">0</h2>
+                            <div id="preview-naps-breakdown" class="legend-list"></div>
+                        </div>
+                    </div>
+
+                    <div class="card chart-card border-red">
+                        <div class="card-title-row">
+                            <h3>Facturas vencidas</h3>
+                            <button class="table-action" type="button" onclick="showPage('facturas', null)">Ver facturas</button>
+                        </div>
+                        <div style="display:grid; gap:8px;">
+                            <p class="stat-label">Mora</p>
+                            <h2 id="preview-facturas-vencidas-count">0</h2>
+                            <span id="preview-facturas-vencidas-pill" class="stat-pill positive">Sin incidencias</span>
+                        </div>
+                    </div>
+
+                    <div class="card chart-card">
+                        <div class="card-title-row">
+                            <h3>Pagos pendientes</h3>
+                            <button class="table-action" type="button" onclick="showPage('pagos', null)">Ver pagos</button>
+                        </div>
+                        <div style="display:grid; gap:8px;">
+                            <p class="stat-label">Por validar</p>
+                            <h2 id="preview-pagos-pendientes-count">0</h2>
+                            <span class="stat-pill warning">Cola de trabajo</span>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="dashboard-grid" style="grid-template-columns:repeat(auto-fit, minmax(320px, 1fr)); margin-top: 16px;">
+                    <div class="card chart-card">
+                        <div class="card-title-row">
+                            <h3>Ingresos por periodo</h3>
+                            <span>Últimos 6 periodos</span>
+                        </div>
+                        <canvas id="dashboard-income-chart" height="220"></canvas>
+                    </div>
+                    <div class="card chart-card">
+                        <div class="card-title-row">
+                            <h3>Estado de facturación</h3>
+                            <span>Facturas reales</span>
+                        </div>
+                        <canvas id="dashboard-billing-chart" height="220"></canvas>
+                    </div>
+                    <div class="card chart-card">
+                        <div class="card-title-row">
+                            <h3>Estado de servicios</h3>
+                            <span>Servicios reales</span>
+                        </div>
+                        <canvas id="dashboard-services-chart" height="220"></canvas>
+                    </div>
+                    <div class="card chart-card">
+                        <div class="card-title-row">
+                            <h3>Infraestructura OLT</h3>
+                            <span>NAPs por OLT</span>
+                        </div>
+                        <canvas id="dashboard-olts-chart" height="220"></canvas>
+                    </div>
+                    <div class="card chart-card">
+                        <div class="card-title-row">
+                            <h3>Ocupación de NAPs</h3>
+                            <span>Clientes / puertos</span>
+                        </div>
+                        <canvas id="dashboard-naps-chart" height="220"></canvas>
+                    </div>
+                    <div class="card chart-card">
+                        <div class="card-title-row">
+                            <h3>Tickets por prioridad y estado</h3>
+                            <span>Reales</span>
+                        </div>
+                        <canvas id="dashboard-tickets-chart" height="220"></canvas>
+                    </div>
+                </section>
+            </div>
+        </div>
+
+        <!-- MÓDULO Clientes: Alta + Listado unificados en un CRUD sobre grid dinámico.
+             CORRECCIÓN FASE 2.5 (index.html): client-modal ya NO contiene campos de
+             dirección/coordenadas/NAP (client-direccion, client-latitud,
+             client-longitud, client-nap). Esos campos fueron eliminados porque
+             app.js (guardarCliente(), toggleClientForm()) dejó de leerlos y
+             limpiarlos desde Fase 2.5 — dejarlos en el DOM sin uso real es ruido
+             visual engañoso: un operador vería inputs que aparentan guardar algo
+             pero cuyo valor nunca llega al backend. La dirección/NAP/coordenadas
+             ahora pertenecen exclusivamente al servicio (servicio-modal, más abajo),
+             gestionado desde la ficha del cliente. -->
+        <div id="clientes" class="page">
+            <div class="page-heading">
+                <div>
+                    <p class="eyebrow">Gestión</p>
+                    <h1>Clientes</h1>
+                </div>
+            </div>
+            <div class="card">
+                <div class="clientes-toolbar" style="display:flex; gap:12px; flex-wrap:wrap; align-items:center; justify-content:space-between; margin-bottom:12px;">
+                    <input id="search-client" type="text" placeholder="🔍 Buscar por Cédula o Nombre..." oninput="loadClientes(this.value, 1)" style="flex:1; min-width:220px; margin:0;">
+                    <button type="button" onclick="toggleClientForm()" style="width:auto; padding:10px 14px;">Nuevo cliente</button>
+                </div>
+
+                <div id="client-modal" class="modal-overlay" style="display:none;">
+                    <div class="modal-card">
+                        <div class="modal-header">
+                            <h3>Datos del cliente</h3>
+                            <button type="button" class="modal-close" onclick="toggleClientForm(true)">×</button>
+                        </div>
+                        <form id="client-form" class="modal-form">
+                            <input id="client-id" type="hidden">
+                            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:12px;">
+                                <input id="client-nombres" type="text" placeholder="Nombres">
+                                <input id="client-apellidos" type="text" placeholder="Apellidos">
+                                <input id="client-cedula" type="text" placeholder="Cédula">
+                                <input id="client-telefono" type="text" placeholder="Teléfono">
+                                <input id="client-correo" type="email" placeholder="Correo">
+                            </div>
+                            <p style="margin:12px 0 0; color:#64748b; font-size:0.9rem;">
+                                La dirección, NAP y coordenadas de instalación se gestionan por cada servicio del cliente (botón "Ficha" → "+ Añadir servicio").
+                            </p>
+                            <div style="display:flex; gap:8px; margin-top:12px;">
+                                <button type="button" onclick="guardarCliente()" style="width:auto; padding:10px 14px;">Guardar cliente</button>
+                                <button type="button" onclick="toggleClientForm(true)" style="width:auto; padding:10px 14px; background:#64748b;">Cancelar</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <div class="table-wrap">
+                    <table id="clientes-table">
+                        <thead>
+                            <tr>
+                                <th>Nombre</th>
+                                <th>Cédula</th>
+                                <th>Teléfono</th>
+                                <th>Correo</th>
+                                <th>Dirección</th>
+                                <th>NAP / OLT</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="clientes-list"></tbody>
+                    </table>
+                </div>
+                <div id="clientes-pagination" class="pagination-row"></div>
+            </div>
+
+            <div id="client-detail-modal" class="modal-overlay" style="display:none;">
+                <div class="modal-card modal-lg">
+                    <div class="modal-header">
+                        <h3>Detalle del cliente</h3>
+                        <button type="button" class="modal-close" onclick="closeClientDetailModal()">×</button>
+                    </div>
+                    <div id="client-detail-content" class="detail-grid"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- MÓDULO Tareas: mismo patrón de grid que Clientes. El formulario
+             (task-form) es toggleable y sirve tanto para crear como para
+             editar; el listado ahora es una tabla real (task-list es el
+             <tbody>) en vez de tarjetas apiladas. -->
+        <div id="tareas" class="page">
+            <div class="page-heading">
+                <div>
+                    <p class="eyebrow">Control</p>
+                    <h1>Control de tareas</h1>
+                </div>
+            </div>
+            <div class="card">
+                <div class="task-toolbar">
+                    <span>Hoy</span>
+                    <button class="table-action" onclick="toggleTaskForm()">Nueva tarea</button>
+                </div>
+                <div id="task-modal" class="modal-overlay" style="display:none;">
+                    <div class="modal-card">
+                        <div class="modal-header">
+                            <h3>Nueva tarea</h3>
+                            <button type="button" class="modal-close" onclick="toggleTaskForm(true)">×</button>
+                        </div>
+                        <form id="task-form" class="modal-form">
+                            <input id="task-id" type="hidden">
+                            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:12px;">
+                                <input id="task-title" type="text" placeholder="Título de la tarea" required>
+                                <select id="task-status">
+                                    <option>Pendiente</option>
+                                    <option>En curso</option>
+                                    <option>Completada</option>
+                                </select>
+                                <select id="task-priority">
+                                    <option>Alta</option>
+                                    <option selected>Media</option>
+                                    <option>Baja</option>
+                                </select>
+                                <select id="task-client"></select>
+                                <select id="task-user"></select>
+                            </div>
+                            <textarea id="task-description" placeholder="Descripción" style="margin-top:12px;"></textarea>
+                            <div style="display:flex; gap:8px; margin-top:12px;">
+                                <button type="button" onclick="guardarTarea()" style="width:auto; padding:10px 14px;">Guardar tarea</button>
+                                <button type="button" onclick="toggleTaskForm(true)" style="width:auto; padding:10px 14px; background:#64748b;">Cancelar</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+                <div class="table-wrap">
+                    <table id="tareas-table">
+                        <thead>
+                            <tr>
+                                <th>Título</th>
+                                <th>Cliente</th>
+                                <th>Creado por</th>
+                                <th>Prioridad</th>
+                                <th>Estado</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="task-list"></tbody>
+                    </table>
+                </div>
+                <div id="tasks-pagination" class="pagination-row"></div>
+            </div>
+        </div>
+
+        <!-- MÓDULO Tickets: mismo patrón. data-ticket-status se movió del
+             antiguo .ticket-card a la fila <tr>, y setTicketsFilter() ahora
+             selecciona '#ticket-list tr' para no romper el filtrado por
+             pastillas (Abierto/En proceso/Cerrado). -->
+        <div id="tickets" class="page">
+            <div class="page-heading">
+                <div>
+                    <p class="eyebrow">Soporte</p>
+                    <h1>Tickets</h1>
+                </div>
+            </div>
+            <div class="card">
+                <div class="ticket-toolbar">
+                    <div class="filter-row" id="ticket-filters">
+                        <button class="filter-pill active" onclick="setTicketsFilter('Todos', this)">Todos</button>
+                        <button class="filter-pill" onclick="setTicketsFilter('Abierto', this)">Abierto</button>
+                        <button class="filter-pill" onclick="setTicketsFilter('En proceso', this)">En proceso</button>
+                        <button class="filter-pill" onclick="setTicketsFilter('Cerrado', this)">Cerrado</button>
+                    </div>
+                    <div class="ticket-actions">
+                        <button class="table-action" onclick="exportClosedTicketsPdf()">Exportar cerrados a PDF</button>
+                        <button class="table-action" onclick="toggleTicketForm()">Nuevo ticket</button>
+                    </div>
+                </div>
+                <div id="ticket-modal" class="modal-overlay" style="display:none;">
+                    <div class="modal-card">
+                        <div class="modal-header">
+                            <h3>Nuevo ticket</h3>
+                            <button type="button" class="modal-close" onclick="toggleTicketForm(true)">×</button>
+                        </div>
+                        <form id="ticket-form" class="modal-form">
+                            <input id="ticket-id" type="hidden">
+                            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:12px;">
+                                <input id="ticket-subject" type="text" placeholder="Asunto del ticket" required>
+                                <select id="ticket-status">
+                                    <option>Abierto</option>
+                                    <option>En proceso</option>
+                                    <option>Cerrado</option>
+                                </select>
+                                <select id="ticket-priority">
+                                    <option>Alta</option>
+                                    <option selected>Media</option>
+                                    <option>Baja</option>
+                                </select>
+                                <select id="ticket-client"></select>
+                                <select id="ticket-user"></select>
+                            </div>
+                            <textarea id="ticket-description" placeholder="Descripción" style="margin-top:12px;"></textarea>
+                            <div style="display:flex; gap:8px; margin-top:12px;">
+                                <button type="button" onclick="guardarTicket()" style="width:auto; padding:10px 14px;">Guardar ticket</button>
+                                <button type="button" onclick="toggleTicketForm(true)" style="width:auto; padding:10px 14px; background:#64748b;">Cancelar</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+                <div id="close-ticket-modal" class="modal-overlay" style="display:none;">
+                    <div class="modal-card">
+                        <div class="modal-header">
+                            <h3>Cerrar ticket</h3>
+                            <button type="button" class="modal-close" onclick="toggleCloseTicketModal(true)">×</button>
+                        </div>
+                        <input id="close-ticket-id" type="hidden">
+                        <p class="modal-help">Describe brevemente qué se realizó para resolver este ticket.</p>
+                        <textarea id="close-ticket-details" rows="6" placeholder="Detalle del trabajo realizado, solución aplicada y observaciones..."></textarea>
+                        <div style="display:flex; gap:8px; margin-top:12px;">
+                            <button type="button" onclick="confirmarCierreTicket()" style="width:auto; padding:10px 14px;">Cerrar ticket</button>
+                            <button type="button" onclick="toggleCloseTicketModal(true)" style="width:auto; padding:10px 14px; background:#64748b;">Cancelar</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="table-wrap">
+                    <table id="tickets-table">
+                        <thead>
+                            <tr>
+                                <th>Asunto</th>
+                                <th>Cliente</th>
+                                <th>Creado por</th>
+                                <th>Prioridad</th>
+                                <th>Estado</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="ticket-list"></tbody>
+                    </table>
+                </div>
+                <div id="tickets-pagination" class="pagination-row"></div>
+            </div>
+        </div>
+
+        <div id="mapa" class="page">
+            <div class="page-heading">
+                <div>
+                    <p class="eyebrow">Infraestructura</p>
+                    <h1>Mapa técnico</h1>
+                </div>
+            </div>
+            <div class="card map-card">
+                <div class="map-controls-simple">
+                    <select id="map-filter-router" onchange="onMapFilterChange()">
+                        <option value="">Router (todos)</option>
+                    </select>
+                    <select id="map-filter-emisor" onchange="onMapFilterChange()">
+                        <option value="">Emisor (todos)</option>
+                    </select>
+                    <select id="map-filter-ubicacion" onchange="onMapFilterChange()">
+                        <option value="">Ubicación (todas)</option>
+                    </select>
+                    <button type="button" onclick="onMapFilterChange()">Filtrar</button>
+                    <span id="map-filters-active" class="filter-pill active" style="display:none;">Filtro activo</span>
+                    <button type="button" onclick="limpiarFiltrosMapa()" style="background:#64748b;">Limpiar filtros</button>
+                </div>
+                <div id="map-panel" class="map-panel">
+                    <div id="map-embed" class="map-embed" title="Mapa de REDYTELCA"></div>
+                    <div class="map-legend">
+                        <div class="map-legend-item">📍 Nodo</div>
+                        <div class="map-legend-item">🖧 Router / OLT</div>
+                        <div class="map-legend-item">🔌 Emisor / NAP</div>
+                        <div class="map-legend-item">👤 Clientes</div>
+                    </div>
+                    <div id="map-item-list" class="map-item-panel"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- MÓDULO NUEVO: Reportes -->
+        <div id="reportes" class="page">
+            <div class="page-heading">
+                <div>
+                    <p class="eyebrow">Analítica</p>
+                    <h1>Reportes</h1>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-title-row">
+                    <h3>Resumen operativo</h3>
+                    <button class="table-action" onclick="renderReportes()">Actualizar reporte</button>
+                </div>
+                <section class="stats-grid">
+                    <div class="stat-card border-blue">
+                        <div>
+                            <p class="stat-label">Clientes registrados</p>
+                            <h2 id="report-total-clientes">0</h2>
+                        </div>
+                    </div>
+                    <div class="stat-card border-yellow">
+                        <div>
+                            <p class="stat-label">Tareas pendientes</p>
+                            <h2 id="report-tareas-pendientes">0</h2>
+                        </div>
+                    </div>
+                    <div class="stat-card border-green">
+                        <div>
+                            <p class="stat-label">Tareas completadas</p>
+                            <h2 id="report-tareas-completadas">0</h2>
+                        </div>
+                    </div>
+                    <div class="stat-card border-red">
+                        <div>
+                            <p class="stat-label">Tickets abiertos</p>
+                            <h2 id="report-tickets-abiertos">0</h2>
+                        </div>
+                    </div>
+                </section>
+            </div>
+            <div class="card">
+                <div class="card-title-row">
+                    <h3>Tickets por prioridad</h3>
+                    <span>Vista rápida</span>
+                </div>
+                <div id="report-tickets-prioridad" class="summary-metrics"></div>
+            </div>
+        </div>
+<!-- MÓDULO NUEVO: Infraestructura > Nodos -->
+<div id="nodos" class="page">
+    <div class="page-heading">
+        <div>
+            <p class="eyebrow">Infraestructura</p>
+            <h1>Nodos</h1>
+        </div>
+    </div>
+    <div class="card">
+        <div class="clientes-toolbar" style="display:flex; gap:12px; flex-wrap:wrap; align-items:center; justify-content:space-between; margin-bottom:12px;">
+            <span style="color:#64748b;">Puntos físicos de red que agrupan una o varias OLTs</span>
+            <button type="button" onclick="toggleNodoForm()" style="width:auto; padding:10px 14px;">Nuevo nodo</button>
+        </div>
+        <div id="nodo-modal" class="modal-overlay" style="display:none;">
+            <div class="modal-card">
+                <div class="modal-header">
+                    <h3>Nuevo nodo</h3>
+                    <button type="button" class="modal-close" onclick="toggleNodoForm(true)">×</button>
+                </div>
+                <form id="nodo-form" class="modal-form">
+                    <input id="nodo-id" type="hidden">
+                    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:12px;">
+                        <input id="nodo-nombre" type="text" placeholder="Nombre del nodo (Ej. San Francisco)">
+                        <input id="nodo-ubicacion" type="text" placeholder="Ubicación / referencia">
+                        <input id="nodo-latitud" type="text" placeholder="Latitud (Ej. 10.64270000)">
+                        <input id="nodo-longitud" type="text" placeholder="Longitud (Ej. -71.61250000)">
+                        <select id="nodo-estado">
+                            <option value="activo">Activo</option>
+                            <option value="mantenimiento">Mantenimiento</option>
+                            <option value="inactivo">Inactivo</option>
+                        </select>
+                    </div>
+                    <div style="display:flex; gap:8px; margin-top:12px;">
+                        <button type="button" onclick="guardarNodo()" style="width:auto; padding:10px 14px;">Guardar nodo</button>
+                        <button type="button" onclick="toggleNodoForm(true)" style="width:auto; padding:10px 14px; background:#64748b;">Cancelar</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        <div class="table-wrap">
+            <table id="nodos-table">
+                <thead>
+                    <tr>
+                        <th>Nombre</th>
+                        <th>Ubicación</th>
+                        <th>Coordenadas</th>
+                        <th>Estado</th>
+                        <th>OLTs</th>
+                        <th>Acciones</th>
+                    </tr>
+                </thead>
+                <tbody id="nodos-list"></tbody>
+            </table>
+        </div>
+        <div id="nodos-pagination" class="pagination-row"></div>
+    </div>
+</div>
+
+<!-- MÓDULO NUEVO: Infraestructura > OLTs -->
+<div id="olts" class="page">
+    <div class="page-heading">
+        <div>
+            <p class="eyebrow">Infraestructura</p>
+            <h1>OLTs</h1>
+        </div>
+    </div>
+    <div class="card">
+        <div class="clientes-toolbar" style="display:flex; gap:12px; flex-wrap:wrap; align-items:center; justify-content:space-between; margin-bottom:12px;">
+            <span style="color:#64748b;">Equipos ópticos que cuelgan de un nodo</span>
+            <button type="button" onclick="toggleOltForm()" style="width:auto; padding:10px 14px;">Nueva OLT</button>
+        </div>
+        <div id="olt-modal" class="modal-overlay" style="display:none;">
+            <div class="modal-card">
+                <div class="modal-header">
+                    <h3>Datos de la OLT</h3>
+                    <button type="button" class="modal-close" onclick="toggleOltForm(true)">×</button>
+                </div>
+                <form id="olt-form" class="modal-form">
+                    <input id="olt-id" type="hidden">
+                    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:12px;">
+                        <input id="olt-codigo" type="text" placeholder="Código (Ej. OLT-01)">
+                        <input id="olt-marca" type="text" placeholder="Marca / modelo">
+                        <input id="olt-puertos" type="number" placeholder="Puertos PON" min="1">
+                        <input id="olt-ip" type="text" placeholder="IP de gestión">
+                        <select id="olt-nodo"></select>
+                    </div>
+                    <div style="display:flex; gap:8px; margin-top:12px;">
+                        <button type="button" onclick="guardarOlt()" style="width:auto; padding:10px 14px;">Guardar OLT</button>
+                        <button type="button" onclick="toggleOltForm(true)" style="width:auto; padding:10px 14px; background:#64748b;">Cancelar</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        <div class="table-wrap">
+            <table id="olts-table">
+                <thead>
+                    <tr>
+                        <th>Código</th>
+                        <th>Marca / modelo</th>
+                        <th>Puertos PON</th>
+                        <th>IP gestión</th>
+                        <th>Nodo</th>
+                        <th>NAPs</th>
+                        <th>Acciones</th>
+                    </tr>
+                </thead>
+                <tbody id="olts-list"></tbody>
+            </table>
+        </div>
+        <div id="olts-pagination" class="pagination-row"></div>
+    </div>
+</div>
+
+<!-- MÓDULO NUEVO: Infraestructura > NAPs -->
+<div id="naps" class="page">
+    <div class="page-heading">
+        <div>
+            <p class="eyebrow">Infraestructura</p>
+            <h1>NAPs</h1>
+        </div>
+    </div>
+    <div class="card">
+        <div class="clientes-toolbar" style="display:flex; gap:12px; flex-wrap:wrap; align-items:center; justify-content:space-between; margin-bottom:12px;">
+            <span style="color:#64748b;">Cajas de distribución que cuelgan de una OLT</span>
+            <button type="button" onclick="toggleNapForm()" style="width:auto; padding:10px 14px;">Nueva NAP</button>
+        </div>
+        <div id="nap-modal" class="modal-overlay" style="display:none;">
+            <div class="modal-card">
+                <div class="modal-header">
+                    <h3>Datos de la NAP</h3>
+                    <button type="button" class="modal-close" onclick="toggleNapForm(true)">×</button>
+                </div>
+                <form id="nap-form" class="modal-form">
+                    <input id="nap-id" type="hidden">
+                    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:12px;">
+                        <input id="nap-codigo" type="text" placeholder="Código (Ej. NAP-014)">
+                        <input id="nap-puertos" type="number" placeholder="Puertos máx." min="1">
+                        <input id="nap-ubicacion" type="text" placeholder="Ubicación física">
+                        <input id="nap-latitud" type="text" placeholder="Latitud">
+                        <input id="nap-longitud" type="text" placeholder="Longitud">
+                        <select id="nap-olt"></select>
+                    </div>
+                    <div style="display:flex; gap:8px; margin-top:12px;">
+                        <button type="button" onclick="guardarNap()" style="width:auto; padding:10px 14px;">Guardar NAP</button>
+                        <button type="button" onclick="toggleNapForm(true)" style="width:auto; padding:10px 14px; background:#64748b;">Cancelar</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        <div class="table-wrap">
+            <table id="naps-table">
+                <thead>
+                    <tr>
+                        <th>Código</th>
+                        <th>Puertos máx.</th>
+                        <th>Ubicación</th>
+                        <th>OLT</th>
+                        <th>Nodo</th>
+                        <th>Clientes</th>
+                        <th>Acciones</th>
+                    </tr>
+                </thead>
+                <tbody id="naps-list"></tbody>
+            </table>
+        </div>
+        <div id="naps-pagination" class="pagination-row"></div>
+    </div>
+</div>
+
+<!-- MÓDULO NUEVO: Infraestructura > Equipos -->
+<div id="equipos" class="page">
+    <div class="page-heading">
+        <div>
+            <p class="eyebrow">Infraestructura</p>
+            <h1>Equipos</h1>
+        </div>
+    </div>
+    <div class="card">
+        <div class="clientes-toolbar" style="display:flex; gap:12px; flex-wrap:wrap; align-items:center; justify-content:space-between; margin-bottom:12px;">
+            <span style="color:#64748b;">Inventario manual de CPE (ONU/ONT/Router)</span>
+            <button type="button" onclick="toggleEquipoForm()" style="width:auto; padding:10px 14px;">Nuevo equipo</button>
+        </div>
+        <div id="equipo-modal" class="modal-overlay" style="display:none;">
+            <div class="modal-card">
+                <div class="modal-header">
+                    <h3>Datos del equipo</h3>
+                    <button type="button" class="modal-close" onclick="toggleEquipoForm(true)">×</button>
+                </div>
+                <form id="equipo-form" class="modal-form">
+                    <input id="equipo-id" type="hidden">
+                    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:12px;">
+                        <select id="equipo-tipo">
+                            <option value="ONU">ONU</option>
+                            <option value="ONT">ONT</option>
+                            <option value="ROUTER">ROUTER</option>
+                        </select>
+                        <input id="equipo-marca" type="text" placeholder="Marca">
+                        <input id="equipo-modelo" type="text" placeholder="Modelo">
+                        <input id="equipo-mac" type="text" placeholder="AA:BB:CC:DD:EE:FF">
+                        <input id="equipo-puerto" type="number" placeholder="Número de puerto" min="1">
+                        <select id="equipo-estado">
+                            <option value="operativo">Operativo</option>
+                            <option value="averiado">Averiado</option>
+                            <option value="stock">Stock</option>
+                        </select>
+                        <select id="equipo-nap"></select>
+                        <select id="equipo-servicio"></select>
+                    </div>
+                    <div style="display:flex; gap:8px; margin-top:12px;">
+                        <button type="button" onclick="guardarEquipo()" style="width:auto; padding:10px 14px;">Guardar equipo</button>
+                        <button type="button" onclick="toggleEquipoForm(true)" style="width:auto; padding:10px 14px; background:#64748b;">Cancelar</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        <div class="table-wrap">
+            <table id="equipos-table">
+                <thead>
+                    <tr>
+                        <th>Tipo</th>
+                        <th>Marca / modelo</th>
+                        <th>MAC</th>
+                        <th>NAP</th>
+                        <th>Puerto</th>
+                        <th>Estado</th>
+                        <th>Cliente asignado</th>
+                        <th>Acciones</th>
+                    </tr>
+                </thead>
+                <tbody id="equipos-list"></tbody>
+            </table>
+        </div>
+        <div id="equipos-pagination" class="pagination-row"></div>
+    </div>
+</div>
+
+<!-- ==================== MÓDULO NUEVO: FINANZAS (Fase 2) ====================
+     Orden en sidebar dictado por rol_modulo_pagina (id_modulo=7, id_pagina
+     15-18), ya seedeado en el dump de Fase 0. renderMenu() en app.js lo
+     coloca automáticamente después de Reportes/Infraestructura sin tocar
+     el sidebar estático de arriba — es 100% data-driven.
+     Los selectores de "Servicio" en los 3 formularios que lo requieren
+     (Facturas, Pagos, Contratos) usan buildServicioOptions(), que lee de
+     window.serviciosCache (poblado por api_servicios.php) — NO de
+     clientesCache — precisamente para reflejar los N servicios reales
+     de cada cliente, corrigiendo el bug de Fase 2 original. -->
+
+<!-- Finanzas > Facturación -->
+<div id="facturas" class="page">
+    <div class="page-heading">
+        <div>
+            <p class="eyebrow">Finanzas</p>
+            <h1>Facturación</h1>
+        </div>
+    </div>
+    <div class="card">
+        <div class="clientes-toolbar" style="display:flex; gap:12px; flex-wrap:wrap; align-items:center; justify-content:space-between; margin-bottom:12px;">
+            <span style="color:#64748b;">Obligaciones de cobro emitidas por servicio</span>
+            <button type="button" onclick="toggleFacturaForm()" style="width:auto; padding:10px 14px;">Nueva factura</button>
+        </div>
+        <div id="factura-modal" class="modal-overlay" style="display:none;">
+            <div class="modal-card">
+                <div class="modal-header">
+                    <h3>Datos de la factura</h3>
+                    <button type="button" class="modal-close" onclick="toggleFacturaForm(true)">×</button>
+                </div>
+                <form id="factura-form" class="modal-form">
+                    <input id="factura-id" type="hidden">
+                    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:12px;">
+                        <select id="factura-servicio"></select>
+                        <input id="factura-periodo" type="text" placeholder="Periodo (Ej. 2026-07)">
+                        <input id="factura-monto" type="number" step="0.01" min="0" placeholder="Monto">
+                        <input id="factura-fecha-emision" type="date" placeholder="Fecha de emisión">
+                        <input id="factura-fecha-vencimiento" type="date" placeholder="Fecha de vencimiento">
+                        <select id="factura-estado">
+                            <option value="pendiente">Pendiente</option>
+                            <option value="parcial">Parcial</option>
+                            <option value="pagada">Pagada</option>
+                            <option value="vencida">Vencida</option>
+                            <option value="anulada">Anulada</option>
+                        </select>
+                    </div>
+                    <div style="display:flex; gap:8px; margin-top:12px;">
+                        <button type="button" onclick="guardarFactura()" style="width:auto; padding:10px 14px;">Guardar factura</button>
+                        <button type="button" onclick="toggleFacturaForm(true)" style="width:auto; padding:10px 14px; background:#64748b;">Cancelar</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        <div class="table-wrap">
+            <table id="facturas-table">
+                <thead>
+                    <tr>
+                        <th>Cliente</th>
+                        <th>Periodo</th>
+                        <th>Monto</th>
+                        <th>Pagado</th>
+                        <th>Vencimiento</th>
+                        <th>Estado</th>
+                        <th>Acciones</th>
+                    </tr>
+                </thead>
+                <tbody id="facturas-list"></tbody>
+            </table>
+        </div>
+        <div id="facturas-pagination" class="pagination-row"></div>
+    </div>
+</div>
+
+<!-- Finanzas > Pagos -->
+<div id="pagos" class="page">
+    <div class="page-heading">
+        <div>
+            <p class="eyebrow">Finanzas</p>
+            <h1>Pagos</h1>
+        </div>
+    </div>
+    <div class="card">
+        <div class="clientes-toolbar" style="display:flex; gap:12px; flex-wrap:wrap; align-items:center; justify-content:space-between; margin-bottom:12px;">
+            <span style="color:#64748b;">Eventos de cobro reportados, sujetos a validación de un Administrador</span>
+            <button type="button" onclick="togglePagoForm()" style="width:auto; padding:10px 14px;">Registrar pago</button>
+        </div>
+        <div id="pago-modal" class="modal-overlay" style="display:none;">
+            <div class="modal-card">
+                <div class="modal-header">
+                    <h3>Datos del pago</h3>
+                    <button type="button" class="modal-close" onclick="togglePagoForm(true)">×</button>
+                </div>
+                <form id="pago-form" class="modal-form">
+                    <input id="pago-id" type="hidden">
+                    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:12px;">
+                        <select id="pago-servicio"></select>
+                        <select id="pago-factura">
+                            <option value="">Sin factura asociada (a cuenta)</option>
+                        </select>
+                        <input id="pago-monto" type="number" step="0.01" min="0" placeholder="Monto">
+                        <input id="pago-fecha" type="datetime-local" placeholder="Fecha de pago">
+                        <select id="pago-metodo">
+                            <option value="">Método de pago</option>
+                            <option value="transferencia">Transferencia</option>
+                            <option value="pago_movil">Pago móvil</option>
+                            <option value="zelle">Zelle</option>
+                            <option value="efectivo">Efectivo</option>
+                        </select>
+                        <input id="pago-referencia" type="text" placeholder="Referencia bancaria">
+                    </div>
+                    <div style="display:flex; gap:8px; margin-top:12px;">
+                        <button type="button" onclick="guardarPago()" style="width:auto; padding:10px 14px;">Guardar pago</button>
+                        <button type="button" onclick="togglePagoForm(true)" style="width:auto; padding:10px 14px; background:#64748b;">Cancelar</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        <div class="table-wrap">
+            <table id="pagos-table">
+                <thead>
+                    <tr>
+                        <th>Cliente</th>
+                        <th>Factura</th>
+                        <th>Monto</th>
+                        <th>Fecha</th>
+                        <th>Método</th>
+                        <th>Estado</th>
+                        <th>Acciones</th>
+                    </tr>
+                </thead>
+                <tbody id="pagos-list"></tbody>
+            </table>
+        </div>
+        <div id="pagos-pagination" class="pagination-row"></div>
+    </div>
+</div>
+
+<!-- Finanzas > Planes -->
+<div id="planes" class="page">
+    <div class="page-heading">
+        <div>
+            <p class="eyebrow">Finanzas</p>
+            <h1>Planes</h1>
+        </div>
+    </div>
+    <div class="card">
+        <div class="clientes-toolbar" style="display:flex; gap:12px; flex-wrap:wrap; align-items:center; justify-content:space-between; margin-bottom:12px;">
+            <span style="color:#64748b;">Catálogo de planes de servicio disponibles para asignar</span>
+            <button type="button" onclick="togglePlanForm()" style="width:auto; padding:10px 14px;">Nuevo plan</button>
+        </div>
+        <div id="plan-modal" class="modal-overlay" style="display:none;">
+            <div class="modal-card">
+                <div class="modal-header">
+                    <h3>Datos del plan</h3>
+                    <button type="button" class="modal-close" onclick="togglePlanForm(true)">×</button>
+                </div>
+                <form id="plan-form" class="modal-form">
+                    <input id="plan-id" type="hidden">
+                    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:12px;">
+                        <input id="plan-nombre" type="text" placeholder="Nombre del plan (Ej. Plan Hogar 20 Mbps)">
+                        <input id="plan-velocidad" type="text" placeholder="Velocidad (Ej. 20 Mbps)">
+                        <input id="plan-precio" type="number" step="0.01" min="0" placeholder="Precio mensual">
+                        <input id="plan-moneda" type="text" placeholder="Moneda (Ej. USD)" value="USD">
+                    </div>
+                    <div style="display:flex; gap:8px; margin-top:12px;">
+                        <button type="button" onclick="guardarPlan()" style="width:auto; padding:10px 14px;">Guardar plan</button>
+                        <button type="button" onclick="togglePlanForm(true)" style="width:auto; padding:10px 14px; background:#64748b;">Cancelar</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        <div class="table-wrap">
+            <table id="planes-table">
+                <thead>
+                    <tr>
+                        <th>Nombre</th>
+                        <th>Velocidad</th>
+                        <th>Precio</th>
+                        <th>Moneda</th>
+                        <th>Servicios activos</th>
+                        <th>Acciones</th>
+                    </tr>
+                </thead>
+                <tbody id="planes-list"></tbody>
+            </table>
+        </div>
+        <div id="planes-pagination" class="pagination-row"></div>
+    </div>
+</div>
+
+<!-- Finanzas > Contratos -->
+<div id="contratos" class="page">
+    <div class="page-heading">
+        <div>
+            <p class="eyebrow">Finanzas</p>
+            <h1>Contratos</h1>
+        </div>
+    </div>
+    <div class="card">
+        <div class="clientes-toolbar" style="display:flex; gap:12px; flex-wrap:wrap; align-items:center; justify-content:space-between; margin-bottom:12px;">
+            <span style="color:#64748b;">Condiciones contractuales asociadas a cada servicio</span>
+            <button type="button" onclick="toggleContratoForm()" style="width:auto; padding:10px 14px;">Nuevo contrato</button>
+        </div>
+        <div id="contrato-modal" class="modal-overlay" style="display:none;">
+            <div class="modal-card">
+                <div class="modal-header">
+                    <h3>Datos del contrato</h3>
+                    <button type="button" class="modal-close" onclick="toggleContratoForm(true)">×</button>
+                </div>
+                <form id="contrato-form" class="modal-form">
+                    <input id="contrato-id" type="hidden">
+                    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:12px;">
+                        <select id="contrato-servicio" onchange="refreshContratoDraft()"></select>
+                        <input id="contrato-fecha-inicio" type="date" placeholder="Fecha de inicio" oninput="refreshContratoDraft()" onchange="refreshContratoDraft()">
+                        <input id="contrato-fecha-fin" type="date" placeholder="Fecha de fin (si aplica)" oninput="refreshContratoDraft()" onchange="refreshContratoDraft()">
+                        <select id="contrato-tipo" onchange="refreshContratoDraft()">
+                            <option value="indefinido">Indefinido</option>
+                            <option value="plazo_fijo">Plazo fijo</option>
+                            <option value="promocional">Promocional</option>
+                        </select>
+                        <select id="contrato-estado" onchange="refreshContratoDraft()">
+                            <option value="vigente">Vigente</option>
+                            <option value="vencido">Vencido</option>
+                            <option value="rescindido">Rescindido</option>
+                        </select>
+                    </div>
+                    <textarea id="contrato-observaciones" placeholder="Observaciones" style="margin-top:12px;" oninput="refreshContratoDraft()" onchange="refreshContratoDraft()"></textarea>
+                    <textarea id="contrato-draft-preview" readonly placeholder="El borrador legal del contrato aparecerá aquí" style="margin-top:12px; min-height:120px; resize:vertical;"></textarea>
+                    <div style="display:flex; gap:8px; margin-top:12px; flex-wrap:wrap;">
+                        <button type="button" onclick="guardarContrato()" style="width:auto; padding:10px 14px;">Guardar contrato</button>
+                        <button type="button" onclick="exportContratoPdf()" style="width:auto; padding:10px 14px; background:#0f766e;">Exportar borrador a PDF</button>
+                        <button type="button" onclick="toggleContratoForm(true)" style="width:auto; padding:10px 14px; background:#64748b;">Cancelar</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        <div class="table-wrap">
+            <table id="contratos-table">
+                <thead>
+                    <tr>
+                        <th>Cliente</th>
+                        <th>Inicio</th>
+                        <th>Fin</th>
+                        <th>Tipo</th>
+                        <th>Estado</th>
+                        <th>Acciones</th>
+                    </tr>
+                </thead>
+                <tbody id="contratos-list"></tbody>
+            </table>
+        </div>
+        <div id="contratos-pagination" class="pagination-row"></div>
+    </div>
+</div>
+<!-- ==================== FIN MÓDULO FINANZAS ==================== -->
+
+        <!-- ==================== MÓDULO NUEVO (CORRECCIÓN FASE 2.5): SERVICIOS ====================
+             CORRECCIÓN CRÍTICA: este modal NO existía en el index.html anterior, pese a
+             que app.js (toggleServicioForm(), abrirNuevoServicio(), guardarServicio(),
+             editarServicio()) ya buscaba document.getElementById('servicio-modal') desde
+             que se implementó el módulo de servicios. Sin este bloque, el botón
+             "+ Añadir servicio" de la ficha del cliente (renderClientProfile() en app.js)
+             no producía ningún efecto visible: el modal buscado era `null`.
+             Se anida como modal global (no como página propia del sidebar) porque
+             conceptualmente un servicio siempre pertenece al cliente que se está viendo
+             en ese momento — mismo criterio documentado en app.js. Los IDs de campo
+             (servicio-id, servicio-cliente-id, servicio-alias, servicio-direccion,
+             servicio-latitud, servicio-longitud, servicio-nap, servicio-plan,
+             servicio-estado) son EXACTAMENTE los que ya esperaba app.js — no se
+             renombró nada, se completó lo que faltaba. -->
+        <div id="servicio-modal" class="modal-overlay" style="display:none;">
+            <div class="modal-card">
+                <div class="modal-header">
+                    <h3>Servicio del cliente</h3>
+                    <button type="button" class="modal-close" onclick="toggleServicioForm(true)">×</button>
+                </div>
+                <form id="servicio-form" class="modal-form">
+                    <input id="servicio-id" type="hidden">
+                    <input id="servicio-cliente-id" type="hidden">
+                    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:12px;">
+                        <input id="servicio-alias" type="text" placeholder="Alias del servicio (Ej. Casa principal, Local comercial)">
+                        <input id="servicio-direccion" type="text" placeholder="Dirección completa de instalación">
+                        <input id="servicio-latitud" type="text" placeholder="Latitud de instalación (Ej. 10.48060000)">
+                        <input id="servicio-longitud" type="text" placeholder="Longitud de instalación (Ej. -66.90360000)">
+                        <select id="servicio-nap">
+                            <option value="">Sin NAP asignada</option>
+                        </select>
+                        <select id="servicio-plan"></select>
+                        <select id="servicio-estado">
+                            <option value="pendiente">Pendiente</option>
+                            <option value="activo">Activo</option>
+                            <option value="suspendido">Suspendido</option>
+                            <option value="retirado">Retirado</option>
+                        </select>
+                    </div>
+                    <div style="display:flex; gap:8px; margin-top:12px;">
+                        <button type="button" onclick="guardarServicio()" style="width:auto; padding:10px 14px;">Guardar servicio</button>
+                        <button type="button" onclick="toggleServicioForm(true)" style="width:auto; padding:10px 14px; background:#64748b;">Cancelar</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        <!-- ==================== FIN MÓDULO SERVICIOS ==================== -->
+
+        <!-- MÓDULO Configuración: Empresa + Usuario/Roles/Vistas/Permisos -->
+        <div id="configuracion" class="page">
+            <div class="page-heading">
+                <div>
+                    <p class="eyebrow">Configuración</p>
+                    <h1>Administración y accesos</h1>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-title-row">
+                    <h3>Empresa</h3>
+                    <span>Identidad RedyTelca</span>
+                </div>
+                <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:16px;">
+                    <div>
+                        <label for="empresa-nombre">Nombre</label>
+                        <input id="empresa-nombre" type="text" placeholder="RedyTelca">
+                    </div>
+                    <div>
+                        <label for="empresa-logo">Logotipo</label>
+                        <input id="empresa-logo" type="file" accept="image/*">
+                    </div>
+                    <div>
+                        <label for="empresa-color">Identidad corporativa</label>
+                        <input id="empresa-color" type="color" value="#0f172a">
+                    </div>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-title-row">
+                    <h3>Administración general</h3>
+                    <span>Configuraciones de empresa y acceso</span>
+                </div>
+                <p>Este módulo contiene los ajustes generales de la plataforma. Para administrar usuarios, roles y permisos usa las páginas separadas dentro del módulo Configuración.</p>
+            </div>
+        </div>
+
+        <div id="usuarios" class="page">
+            <div class="page-heading">
+                <div>
+                    <p class="eyebrow">Configuración</p>
+                    <h1>Usuarios</h1>
+                </div>
+            </div>
+            <div class="card users-toolbar">
+                <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:16px; align-items:end;">
+                    <div>
+                        <label for="new-user-username">Usuario</label>
+                        <input id="new-user-username" type="text" placeholder="Nombre de usuario">
+                    </div>
+                    <div>
+                        <label for="new-user-email">Correo electrónico</label>
+                        <input id="new-user-email" type="email" placeholder="usuario@empresa.com">
+                    </div>
+                    <div>
+                        <label for="new-user-role">Rol</label>
+                        <select id="new-user-role"></select>
+                    </div>
+                    <div>
+                        <button type="button" onclick="crearUsuario()" style="width:auto; padding:10px 14px;">Crear usuario</button>
+                    </div>
+                </div>
+                <div style="margin-top:6px; color:#475569; font-size:0.95rem;">Se asignará una contraseña temporal por defecto. El usuario deberá cambiarla en su primer ingreso.</div>
+                <div id="user-feedback" style="margin-top:10px; color:green;"></div>
+            </div>
+            <div class="card">
+                <div class="card-title-row">
+                    <h3>Lista de usuarios</h3>
+                    <span>Restablecer o revisar usuario</span>
+                </div>
+                <div class="users-toolbar" style="margin-bottom:12px; display:flex; gap:12px; flex-wrap:wrap; align-items:center; justify-content:space-between;">
+                    <input id="users-search" type="text" placeholder="Buscar usuario..." oninput="renderUsersPage(1)" style="flex:1; min-width:220px; margin:0;">
+                    <div id="user-filters" class="filter-row"></div>
+                </div>
+                <div class="table-wrap">
+                    <table id="users-table">
+                        <thead>
+                            <tr>
+                                <th>Usuario</th>
+                                <th>Correo</th>
+                                <th>Rol</th>
+                                <th>Correo verificado</th>
+                                <th>Cambio pendiente</th>
+                                <th>Última conexión</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+                <div id="users-pagination" class="pagination-row"></div>
+            </div>
+        </div>
+
+        <div id="permisos" class="page">
+            <div class="page-heading">
+                <div>
+                    <p class="eyebrow">Configuración</p>
+                    <h1>Roles y permisos</h1>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-title-row">
+                    <h3>Roles disponibles</h3>
+                    <span>Crear nuevo rol y asignar vistas</span>
+                </div>
+                <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:16px; align-items:end;">
+                    <div>
+                        <label for="config-role-select">Rol a editar</label>
+                        <select id="config-role-select" onchange="loadRolePermissions('config')"></select>
+                    </div>
+                    <div>
+                        <label for="config-new-role-name">Crear nuevo rol</label>
+                        <input id="config-new-role-name" type="text" placeholder="Ej. Operador">
+                    </div>
+                    <div>
+                        <button type="button" onclick="crearRol()" style="width:auto; padding:10px 14px;">Crear rol</button>
+                    </div>
+                </div>
+                <div id="config-role-feedback" style="margin-top:6px; color:green;"></div>
+                <div id="config-roles-list" class="roles-grid" style="margin-top:14px;"></div>
+            </div>
+            <div class="card">
+                <div class="card-title-row">
+                    <h3>Módulos y vistas permitidas</h3>
+                    <span>Marca lo que este rol puede ver</span>
+                </div>
+                <div id="config-permissions-list"></div>
+                <button type="button" onclick="guardarPermisos('config')" style="margin-top:14px; width:auto; padding:10px 14px;">Guardar asignación de vistas</button>
+                <div id="config-permissions-feedback" style="margin-top:10px; color:green;"></div>
+            </div>
+        </div>
+
+        <div id="edit-user-modal" class="modal-overlay" style="display:none;">
+            <div class="modal-card modal-lg">
+                <div class="modal-header">
+                    <h3>Editar usuario</h3>
+                    <button type="button" class="modal-close" onclick="document.getElementById('edit-user-modal').style.display='none'">×</button>
+                </div>
+                <div style="display:grid; gap:14px;">
+                    <input id="edit-user-id" type="hidden">
+                    <div>
+                        <label for="edit-user-username">Nombre de usuario</label>
+                        <input id="edit-user-username" type="text" placeholder="Nombre de usuario">
+                    </div>
+                    <div>
+                        <label for="edit-user-email">Correo electrónico</label>
+                        <input id="edit-user-email" type="email" placeholder="usuario@empresa.com">
+                    </div>
+                    <div>
+                        <label for="edit-user-role">Rol</label>
+                        <select id="edit-user-role"></select>
+                    </div>
+                    <button type="button" onclick="guardarUsuarioEditado()" style="width:auto; padding:10px 14px;">Guardar cambios</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="edit-role-modal" class="modal-overlay" style="display:none;">
+            <div class="modal-card modal-lg">
+                <div class="modal-header">
+                    <h3>Editar rol</h3>
+                    <button type="button" class="modal-close" onclick="document.getElementById('edit-role-modal').style.display='none'">×</button>
+                </div>
+                <div style="display:grid; gap:14px;">
+                    <input id="edit-role-id" type="hidden">
+                    <div>
+                        <label for="edit-role-name">Nombre del rol</label>
+                        <input id="edit-role-name" type="text" placeholder="Ej. Operador">
+                    </div>
+                    <button type="button" onclick="guardarRolEditado()" style="width:auto; padding:10px 14px;">Guardar cambios</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="user-detail-modal" class="modal-overlay" style="display:none;">
+            <div class="modal-card modal-lg">
+                <div class="modal-header">
+                    <h3>Detalle del usuario</h3>
+                    <button type="button" class="modal-close" onclick="closeUserDetailModal()">×</button>
+                </div>
+                <div id="user-detail-content" class="detail-grid"></div>
+            </div>
+        </div>
+
+        <div id="reset-password-modal" class="modal-overlay" style="display:none;">
+            <div class="modal-card modal-lg">
+                <div class="modal-header">
+                    <h3>Restablecer contraseña</h3>
+                    <button type="button" class="modal-close" onclick="toggleResetPasswordModal(true)">×</button>
+                </div>
+                <div style="display:grid; gap:14px;">
+                    <input id="reset-user-id" type="hidden">
+                    <input id="reset-username" type="text" readonly>
+                    <input id="reset-new-password" type="password" placeholder="Nueva contraseña">
+                    <button type="button" onclick="guardarResetPassword()" style="width:auto; padding:10px 14px;">Actualizar contraseña</button>
+                    <div id="reset-password-feedback" style="color:green;"></div>
+                </div>
+            </div>
+        </div>
+
+        <div id="nap-detail-modal" class="modal-overlay" style="display:none;">
+            <div class="modal-card modal-lg">
+                <div class="modal-header">
+                    <h3>Detalle de la NAP</h3>
+                    <button type="button" class="modal-close" onclick="closeNapDetailModal()">×</button>
+                </div>
+                <div id="nap-detail-content" class="detail-grid"></div>
+            </div>
+        </div>
+
+        <div id="password" class="page">
+            <div class="page-heading">
+                <div>
+                    <p class="eyebrow">Cuenta</p>
+                    <h1>Cambiar contraseña</h1>
+                </div>
+            </div>
+            <div class="card">
+                <input id="password-user" type="text" placeholder="Usuario" value="">
+                <input id="password-current" type="password" placeholder="Contraseña actual">
+                <input id="password-new" type="password" placeholder="Nueva contraseña">
+                <input id="password-confirm" type="password" placeholder="Confirmar nueva contraseña">
+                <button onclick="cambiarPassword()">Actualizar contraseña</button>
+                <div id="password-feedback" style="margin-top: 10px; color: green;"></div>
+            </div>
+        </div>
+    </main>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+    <script src="app.js"></script>
+    <script>
+        (function() {
+            const assets = [
+                { id: 'login-brand-logo', file: 'Logos/logo_transparent.png' },
+                { id: 'sidebar-brand-logo', file: 'Logos/redytelca-identiadad-tipo-c-blanco.svg' }
+            ];
+            const candidates = ['', '../', '../../', '../../../'];
+
+            function resolveAssetPath(file, callback) {
+                let index = 0;
+                function tryNext() {
+                    if (index >= candidates.length) {
+                        callback(candidates[0] + file);
+                        return;
+                    }
+                    const candidate = candidates[index++];
+                    const path = candidate + file;
+                    const img = new Image();
+                    img.onload = function() {
+                        callback(path);
+                    };
+                    img.onerror = function() {
+                        tryNext();
+                    };
+                    img.src = path;
+                }
+                tryNext();
+            }
+
+            assets.forEach(asset => {
+                const element = document.getElementById(asset.id);
+                if (!element) return;
+                resolveAssetPath(asset.file, function(path) {
+                    element.src = path;
+                });
+            });
+        })();
+    </script>
+</body>
+</html>

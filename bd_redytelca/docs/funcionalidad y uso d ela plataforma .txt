@@ -1,0 +1,116 @@
+# PARTE A — Prompt maestro de continuidad (para pegar en cualquier sesión nueva de Claude)
+
+```
+ROL: Arquitecto de Software Senior y Auditor de Código de Élite para REDYTELCA
+(sistema de gestión ISP, proyecto de tesis, Maracaibo, Venezuela).
+
+REGLA DE ORO — DOMINIO ANTES QUE CÓDIGO:
+Antes de tocar una sola línea, contesta estas 3 preguntas para CADA cambio propuesto:
+1. ¿Qué pregunta de negocio responde esta tabla/endpoint/campo? (no "qué guarda",
+   sino "qué decisión operativa o financiera permite tomar").
+2. ¿Qué entidad es la dueña real del dato? (persona vs. punto de servicio vs.
+   evento financiero vs. acuerdo legal — NUNCA mezclar dos preguntas de negocio
+   en una sola tabla/formulario, aunque "hoy" solo haya un caso de uso).
+3. ¿Qué archivos consumen esta tabla HOY? Lístalos y verifica que el cambio no
+   rompa un supuesto 1:1 que otro archivo ya asumía (el bug de Fase 2 fue
+   exactamente esto: 3 archivos distintos asumían "1 cliente = 1 servicio" sin
+   que ninguno lo dijera explícitamente).
+
+REFERENCIA DE INDUSTRIA OBLIGATORIA:
+Modela cada decisión contra el estándar de CRMs/Billing de ISP reales
+(Splynx, UISP/Ubiquiti, Sonar, WispHub, Powercode). Estos sistemas SIEMPRE
+separan:
+  Cliente (persona/entidad legal)
+    → 1..N Servicios (punto de instalación físico: dirección, NAP, plan, estado técnico)
+       → 1..N Contratos (acuerdo legal por servicio: vigencia, tipo, fecha fin)
+       → 1..N Facturas (obligación de cobro periódica por servicio)
+          → 0..N Pagos (eventos de dinero que liquidan una factura, parcial o total)
+Si tu diseño colapsa dos de estos niveles en uno solo "para simplificar", ESO es
+sobreingeniería al revés (subingeniería) y se penaliza en la comparación con el
+estándar de mercado — no lo hagas salvo que el usuario lo pida explícitamente
+y tras advertirle la pérdida de trazabilidad.
+
+PROTOCOLO DE ENTREGA:
+- Archivo completo de principio a fin, nunca fragmentos ni "resto del código aquí".
+- Entrega en el chat (copiar/pegar a IDE), no como descarga.
+- Al final de cada archivo: bloque de comentario explicando el porqué mecánico.
+- Antes de generar DDL o tocar >1 archivo simultáneamente: preguntar confirmación.
+
+ANTES DE CORREGIR CUALQUIER COSA:
+1. Pide (o localiza en el contexto) el dump SQL más reciente y el árbol de
+   archivos más reciente. Nunca asumas nomenclatura — verifica nombre exacto
+   de tabla/columna en el dump real antes de escribir una sola query.
+2. Verifica si existe un documento de continuidad previo (como este) con
+   decisiones ya cerradas. NO reabras decisiones cerradas sin pedido explícito.
+3. Pregunta específicamente: "¿qué fase se completó y cuál es el error/duda
+   puntual?" — no reinicies el análisis completo si el usuario ya te dio ese dato.
+```
+
+---
+
+# PARTE B — Documentación exhaustiva del dominio (tablas, módulos, archivos)
+
+## B.1 — Filosofía de las 3 capas de identidad (por qué existen 3 sistemas separados)
+
+| Capa | Tablas | Quién la usa | Por qué está separada |
+|---|---|---|---|
+| Staff interno | `usuarios`, `rol`, `modulos`, `paginas`, `rol_modulo_pagina` | Administrador/Operador vía `index.html` | RBAC dinámico: qué pantallas del backoffice ve cada rol |
+| Cliente final | `clientes_credenciales` | El cliente vía `portal_cliente.php` | Aislamiento de seguridad: un bug de permisos jamás puede filtrar acceso admin a un cliente si son tablas físicamente distintas |
+| Sesión unificada | `sesiones` (con `tipo_usuario`) | Ambos | Un solo mecanismo de token (`X-Session-Token`), discriminado por columna, en vez de duplicar la lógica de expiración/renovación dos veces |
+
+Un cliente **no es** "un rol con permisos reducidos" — es una entidad de negocio distinta (tiene cédula, facturación, servicios). Mezclarlo con `usuarios` sería un error de modelado con implicación de seguridad real.
+
+## B.2 — Entidades de dominio (el corazón del sistema)
+
+### `clientes` — la PERSONA
+Solo datos que identifican al ser humano/empresa: nombre, cédula, teléfono, correo. **Nunca** debe volver a tener dirección, NAP, ni coordenadas — eso pertenece al servicio. Un cliente puede tener 0 servicios (recién registrado, aún no instalado) o N servicios (varias casas/sedes).
+
+Archivos que la tocan: `registrar_cliente.php` (INSERT), `cliente_actualizar.php` (UPDATE, **solo** columnas de persona), `clientes_listar.php` (SELECT + conteo de servicios), `cliente_eliminar.php` (DELETE en cascada).
+
+### `servicios` — el PUNTO DE INSTALACIÓN (la entidad más importante de la Fase 2.5)
+Cada fila = una instalación física real: una dirección, una NAP, un plan, un estado comercial (`activo`/`suspendido`/`retirado`/`pendiente`). `id_cliente` es FK simple sin `UNIQUE` — eso es lo que permite el caso "5 casas = 5 servicios". Las columnas `direccion_texto`, `latitud_instalacion`, `longitud_instalacion` viven aquí (no en una tabla `direcciones` separada) porque la dirección es un atributo intrínseco del punto de servicio, no de la persona.
+
+Archivo dueño: `api_servicios.php` — CRUD independiente. Este era el archivo que faltaba y causaba el bug: sin él, `cliente_actualizar.php` terminaba pisando "el último servicio" cada vez que alguien editaba al cliente.
+
+**Por qué no hace falta resucitar `direcciones`:** la vieja tabla forzaba 1 dirección = 1 fila separada con FK hacia `servicios`, una normalización que en la práctica solo se usaba con un campo (`calle_avenida`) y nunca aportó valor porque cada servicio ya tiene 1 dirección propia por definición. Poner las columnas inline en `servicios` es la denormalización correcta aquí: no hay reutilización de direcciones entre servicios que justifique una tabla aparte.
+
+### `contratos` — el ACUERDO LEGAL
+Responde: "¿sigue vigente el compromiso contractual de este servicio?" (`vigente`/`vencido`/`rescindido`). Es un eje **legal/administrativo**, no financiero ni técnico. `sincronizarEstadoServicio()` en `api_contratos.php` es la regla de integridad que faltaba: al rescindir un contrato, el servicio pasa automáticamente a `retirado` — sin esto podías tener un contrato muerto con un servicio "activo" fantasma.
+
+### `facturas` — la OBLIGACIÓN DE COBRO
+Responde: "¿cuánto se le debe cobrar al cliente este período, y en qué estado está esa obligación?" (`pendiente`/`parcial`/`pagada`/`vencida`/`anulada`). Es la representación *contable* del cobro — existe independientemente de si ya entró dinero o no. Vencimiento automático recalculado en cada `GET` (sin cron, por limitación de hosting de tesis).
+
+### `pagos` — el EVENTO DE DINERO
+Responde: "¿esta transacción específica realmente ocurrió y fue verificada?" (`pendiente`/`validado`/`rechazado`). Un pago puede no tener factura (`id_factura` nullable → "pago a cuenta"), y una factura puede recibir varios pagos parciales. `reconciliarFactura()` en `api_pagos.php` es el puente: solo cuando la suma de pagos **validados** alcanza el monto, la factura pasa a `pagada`.
+
+**Por qué NO son redundantes (la duda principal del usuario):** si colapsaras factura+pago en una tabla, no podrías distinguir "el cliente dice que pagó" de "confirmamos que pagó" — perderías la ventana de fraude/error que hoy previene el estado `pendiente` de un pago no revisado por Admin. Splynx/Sonar/WispHub separan exactamente así.
+
+### `planes` — el CATÁLOGO
+Simple y correcto tal como está: nombre, velocidad, precio. Un plan es reutilizable por N servicios (`servicios.id_plan` FK).
+
+### `equipos` — INVENTARIO MANUAL (sin automatización de OLT, por decisión de alcance de tesis)
+Un técnico teclea MAC/puerto/estado físico — pura persistencia CRUD, nunca toca la red real. Pendiente de activar en Fase 3 (`api_equipos.php` aún no existe en el árbol compartido).
+
+### `notificaciones` / `logs` — pendientes de Fase 4
+Esquema ya definido, cero backend todavía. `notificaciones` = bandeja interna staff (factura por vencer, ticket sin respuesta). `logs` = auditoría mínima (login, eliminar cliente, cambio de permisos, validación de pago).
+
+### `nodos` → `olts` → `naps` — INVENTARIO DE RED (jerarquía física, sin SNMP/TR-069)
+Puramente informativo: dónde está cada equipo, sin gestionarlo remotamente. `servicios.id_naps` es el punto de unión real cliente↔red.
+
+## B.3 — Mapa de archivos por responsabilidad
+
+| Archivo | Responsabilidad única | NO debe hacer |
+|---|---|---|
+| `conexion.php` | PDO + CORS + funciones de hash de password compartidas | Lógica de negocio de ningún módulo |
+| `login.php` / `auth_state.php` / `logout.php` | Ciclo de vida de sesión de **staff** | Tocar `clientes_credenciales` |
+| `registrar_cliente.php` | Crear `clientes` (+ primer `servicios` si el form trae dirección) | Editar servicios existentes |
+| `cliente_actualizar.php` | UPDATE exclusivo de `clientes` | Tocar `servicios` (bug ya corregido) |
+| `clientes_listar.php` | Listado paginado + conteo `total_servicios` | Traer solo "el último servicio" como si fuera el único |
+| `api_servicios.php` | CRUD de `servicios` por `id_servicio`, filtrable por `id_cliente` | Nada de `clientes` |
+| `api_contratos.php` | CRUD `contratos` + sincronía cascada hacia `servicios.estado_comercial` | Tocar `facturas`/`pagos` |
+| `api_facturas.php` | CRUD `facturas` + auto-vencimiento | Marcar como pagada sin pasar por `pagos` |
+| `api_pagos.php` | CRUD `pagos` + `reconciliarFactura()` + gate `roleId===1` para validar | Dejar validar a rol distinto de Admin |
+| `app.js` | Toda la SPA: cachés, render, fetch a cada endpoint | — |
+| `index.html` | Estructura DOM/formularios que `app.js` manipula | Contener lógica de negocio propia |
+
+---

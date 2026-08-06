@@ -1,0 +1,366 @@
+# Auditoría Estructural de Base de Datos — Plataforma REDYTELCA
+
+## 1. Metodología aplicada
+
+Crucé tres fuentes: (a) el DDL real en `bd_redytelca.sql`, (b) las sentencias `CREATE TABLE IF NOT EXISTS` / `ALTER TABLE` que cada `.php` ejecuta en runtime (que en varios casos **difieren del dump**, lo cual ya es un hallazgo en sí mismo), y (c) el consumo real de esas tablas por parte de `app.js`, `index.html` y cada endpoint. Una tabla solo se considera "viva" si existe al menos una operación CRUD activa desde el flujo que realmente usa el usuario final (`index.html` + `app.js`), no desde código huérfano.
+
+---
+
+## 2. Hallazgo crítico #1: dos sistemas de RBAC conviviendo sin integrarse
+
+Tu proyecto tiene **dos arquitecturas de permisos completas, redundantes y desconectadas entre sí**:
+
+**Sistema A — el que realmente opera** (usado por `login.php`, `auth_state.php`, `permisos_listar.php`, `permisos_guardar.php`, `app.js` → sidebar dinámico):
+```
+usuarios → rol → modulos → paginas → rol_modulo_pagina
+```
+Autenticación por token persistido en la tabla `sesiones` (canal header + fallback query string).
+
+**Sistema B — código muerto que nadie invoca desde la interfaz**:
+```
+usuarios(?) → roles → permissions → role_permission → user_role
+             permisos → rm_permiso
+             user (tabla de usuarios paralela, nunca poblada por el login real)
+```
+Vive en `api/roles.php`, `api/permissions.php`, `api/role_permissions.php`, `api/clientes_listar.php`, `includes/auth.php` (con `has_permission()`/`require_permission()` basado en `$_SESSION['id_rol']`) y en `roles_admin.php`, que **es una página HTML huérfana**: no está enlazada desde `index.html`, no aparece en el sidebar, no la navega ningún usuario.
+
+Evidencia mecánica de por qué está muerto: `includes/auth.php` valida contra `$_SESSION['id_rol']`, pero tu autenticación real (`login.php`) trabaja con tokens en la tabla `sesiones` transmitidos por header `X-Session-Token` — **la sesión PHP nativa nunca se sincroniza entre requests del SPA** porque cada fetch no envía cookies de sesión de forma consistente con ese flujo. Es decir, aunque quisieras usar `api/roles.php` hoy, fallaría con 401 en la mayoría de los casos.
+
+**Tablas huérfanas por esta duplicación:** `roles`, `permissions`, `role_permission`, `user_role`, `permisos`, `rm_permiso`, `user`.
+
+---
+
+## 3. Hallazgo crítico #2: tablas con esquema rico y cero backend
+
+| Tabla | Estado real | Evidencia |
+|---|---|---|
+| `equipos` | Muerta, reconocida por ti mismo | Comentario textual en `api_naps.php`: *"nunca se llena porque no existe ningún api_equipos.php ni formulario que inserte ahí — es una tabla muerta en la práctica actual del sistema"* |
+| `pagos` | Muerta | Ningún `.php` hace `INSERT/SELECT/UPDATE` contra `pagos`. `IMPROVEMENTS.md` la reclama bajo "Finanzas" como pendiente |
+| `notificaciones` | Muerta | FK a `clientes` existe, pero cero endpoints la tocan. El viejo `app.js` (versión anterior, la que aparece más abajo en tu contexto) sí simulaba `aviso_pantalla`/`aviso_sms` como campos hardcodeados de `fallbackClientes`, pero eso ya fue eliminado en Fase B — la simulación murió, la tabla real nunca nació |
+| `logs` | Muerta | Cero `INSERT`. `DOCUMENTACION.md` pide auditoría explícitamente |
+| `planes` | Viva pero decorativa | Solo existe 1 fila fija (`id_plan = 1`, "Plan Básico") auto-sembrada por `registrar_cliente.php`/`cliente_actualizar.php`. No hay CRUD, no hay selector de plan en el formulario de cliente, no se muestra en la ficha |
+
+---
+
+## 4. Hallazgo crítico #3: el dump SQL no refleja el esquema real en producción
+
+`bd_redytelca.sql` define:
+```sql
+`tickets`.`estado` ENUM('no leido','leido','resuelto') NOT NULL
+`tickets`.`id_cliente` INT NOT NULL
+`tickets`.`id_servicio` INT NOT NULL
+```
+Pero `api_tickets.php` ejecuta en cada request:
+```php
+ALTER TABLE tickets MODIFY COLUMN estado VARCHAR(30) NOT NULL DEFAULT 'Abierto'
+ALTER TABLE tickets MODIFY COLUMN id_cliente INT NULL
+ALTER TABLE tickets MODIFY COLUMN id_servicio INT NULL
+```
+y el frontend trabaja con valores `Abierto`/`En proceso`/`Cerrado` — que **nunca calzan con el ENUM original**. Esto significa que cualquier instalación fresca desde `bd_redytelca.sql` sin dejar correr primero `api_tickets.php` fallaría con `SQLSTATE[01000]: Warning: 1265 Data truncated`. Lo mismo aplica a `olts.codigo`, `servicios.id_naps`, y a la tabla `sesiones` completa, que **ni siquiera existe en el dump** pese a ser crítica para que el login funcione.
+
+Esto es deuda técnica de "esquema fantasma": el sistema vive de auto-reparación (`ensureColumn()`, `ensureInfraSchema()`) repetida en 6 archivos distintos, en vez de tener una fuente de verdad única.
+
+---
+
+## 5. Comparativa contra arquitecturas de referencia de ISP CRM/Billing
+
+Los sistemas de gestión de ISP a nivel administrativo (Splynx, UISP CRM, Sonar, Wisphub, Powercode) — descartando el módulo de aprovisionamiento de red que tú mismo excluyes por alcance de tesis — convergen en el mismo set de dominios funcionales:
+
+1. **Customer Management** — ficha de cliente, estado comercial, histórico → **tienes esto**, parcial
+2. **Service/Subscription Management** — plan contratado, fecha de alta, ciclo de facturación → **tienes el esqueleto (`servicios`), pero sin gestión real de planes**
+3. **Billing & Payments** — factura, método de pago, estado de cuenta, mora → **tabla existe, funcionalidad cero**
+4. **Ticketing/Helpdesk** → **implementado y funcional**
+5. **Field Operations/Tasks** → **implementado y funcional**
+6. **Network Inventory** (nodos/OLT/NAP/CPE, sin automatización) → **implementado, salvo `equipos`**
+7. **RBAC + Audit Trail** → **RBAC funcional (Sistema A), auditoría inexistente**
+8. **Notifications** (recordatorios de pago, vencimiento, tickets) → **inexistente**
+9. **Customer Self-Service Portal** → tienes `portal_cliente.php`, pero es un mockup estático sin conexión a `pagos`/`servicios` reales
+10. **Reports/Dashboard** → **implementado, con datos parcialmente simulados** (ej. `ticketsAbiertos` en dashboard se calcula con una fórmula matemática ficticia, no con `COUNT()` real sobre `tickets`)
+
+El punto 3 (Billing) es la brecha más grave frente al estándar de la industria: un sistema que se presenta como "gestión de ISP" sin poder registrar un pago ni mostrar estado de cuenta no cubre la necesidad administrativa núcleo que tu propio `IMPROVEMENTS.md` identifica bajo "Finanzas".
+
+---
+
+## 6. Propuesta de arquitectura objetivo
+
+### 6.1 Eliminar (dead code confirmado, cero riesgo de romper funcionalidad activa)
+`roles`, `permissions`, `role_permission`, `user_role`, `permisos`, `rm_permiso`, `user`
+→ junto con sus archivos: `api/roles.php`, `api/permissions.php`, `api/role_permissions.php`, `api/clientes_listar.php`, `includes/auth.php`, `roles_admin.php`, `migrations/001_create_rbac_tables.sql`
+
+### 6.2 Formalizar en el dump (ya viven en producción vía ALTER dinámico, hay que documentarlas como fuente de verdad)
+- `sesiones` (falta por completo)
+- `olts.codigo`
+- `servicios.id_naps` + `fk_srv_nap`
+- `tickets.estado` como `VARCHAR(30)` con los valores reales, `id_cliente`/`id_servicio` nullable
+
+### 6.3 Activar funcionalmente (esquema ya existe, falta backend)
+- `pagos` → endpoint `pagos_registrar.php` / `pagos_listar.php` + estado de cuenta en ficha de cliente
+- `planes` → CRUD real + selector en formulario de cliente (hoy inamovible)
+- `notificaciones` → módulo mínimo tipo bandeja interna, disparado por: pago próximo a vencer, ticket sin respuesta X días
+- `logs` → interceptor simple en operaciones críticas (login, eliminar cliente, cambiar permisos)
+
+### 6.4 Decisión pendiente contigo (necesito tu visto bueno antes de tocar esto)
+- **`equipos`**: ¿la reducimos a inventario simple (sin forzar unicidad de MAC ni puerto NAP obligatorio) con un `api_equipos.php` real, o la eliminamos por completo dado que no vas a automatizar aprovisionamiento? Mi recomendación técnica: **reducir, no eliminar** — un inventario de CPE (aunque manual) es defendible ante jurado como "control de activos", y la tabla ya modela `tipo/marca/modelo/estado_fisico` correctamente.
+- **`direcciones`**: hoy solo se usa `calle_avenida` como texto libre; `sector`, `n_casa_apto`, `punto_referencia`, `latitud`, `longitud` están muertos. ¿Simplificamos la tabla a lo que realmente se usa, o completamos el flujo (capturar lat/lon real del cliente para que el mapa deje de ser aproximado)? Esto último tiene valor de tesis alto porque hoy el mapa posiciona clientes con promedios artificiales (`calculateMapCenter()`), no con coordenadas reales del domicilio.
+- **`contratos`**: no existe hoy. Es estándar en Splynx/UISP (fecha inicio, fecha fin, tipo de contrato). Dado que es una tesis, aporta rigor de "gestión administrativa formal del ISP" sin requerir automatización de red. ¿La añadimos?
+- **Separar `facturas` de `pagos`**: en un ISP real una factura es la obligación de cobro y un pago es (o no) su liquidación (parcial o total). Mi recomendación: **para el alcance de tesis, NO separar** — sobreingeniería innecesaria. Un solo `pagos` con `estado` (pendiente/validado/rechazado) ya cubre el caso de uso administrativo sin inflar el dominio.
+
+---
+
+## 7. Plan de ejecución por fases (una vez apruebes el alcance)
+
+1. **Fase 0** — Congelar dump: generar un `bd_redytelca.sql` nuevo que refleje el esquema *real* actual (con `sesiones`, `olts.codigo`, `servicios.id_naps`, `tickets` corregido) para que cualquier instalación fresca funcione sin depender de auto-reparación en runtime.
+2. **Fase 1** — Eliminar RBAC duplicado y archivos huérfanos (sección 6.1). Cero impacto funcional, reduce superficie de ataque y confusión de mantenimiento.
+3. **Fase 2** — Activar `pagos` + `planes` (CRUD y vistas). Es el gap de mayor peso frente al estándar de mercado.
+4. **Fase 3** — Activar `notificaciones` + `logs` (auditoría mínima).
+5. **Fase 4** — Resolver `equipos`/`direcciones`/`contratos` según tu decisión en el punto 6.4.
+6. **Fase 5** — Refactor de `app.js`/`index.html` para consumir los nuevos endpoints, con entrega de archivos completos según tu protocolo (sin snippets, uno por uno, en el chat).
+
+---
+
+**Necesito tu decisión sobre los tres puntos de 6.4** (equipos, direcciones/geocoding, contratos) antes de generar el DDL definitivo y arrancar Fase 0. Sin eso, cualquier script que te entregue estaría asumiendo alcance que no me has confirmado — y eso viola justamente la regla de fidelidad que me pediste.
+
+
+# Plan Maestro de Refactorización — REDYTELCA v2.0
+## Arquitectura Completa: Backoffice + RBAC Unificado + Portal de Cliente con Cuenta Propia
+
+---
+
+## 0. Alcance consolidado de esta versión
+
+Con tu confirmación de la **Opción 2** (portal de cliente con login propio), el sistema pasa de tener 2 tipos de usuario (Admin/Operador) a **3 tipos de identidad** que deben convivir sin cruzarse:
+
+1. **Staff interno** (`usuarios` → `rol` → `modulos`/`paginas`) — ya existe, Sistema A, se mantiene como columna vertebral.
+2. **Cliente final** (nueva entidad `clientes_credenciales`) — accede solo a su propia información, nunca al backoffice.
+3. **Sistema B eliminado por completo** — ya no hay ambigüedad de un tercer esquema muerto compitiendo por el nombre "roles".
+
+Antes de tocar una sola línea de DDL, dejo constancia de las **dos decisiones que quedaron abiertas y que estoy fijando por defecto** para no bloquear el plan. Si no estás de acuerdo, se ajustan en Fase 0 sin romper nada del resto:
+
+- **Puerto de NAP:** fijo `UNIQUE KEY (id_naps, num_puerto_nap)` — es el comportamiento correcto de campo (una NAP física de 8/16 puertos no puede tener dos clientes en el mismo puerto). Si tu operación real no numera puertos de forma estricta, se relaja en Fase 0.
+- **Lat/lon de instalación:** **se incluyen** como columnas nullable en `servicios`. Costo cero si no las usas, y te da margen de mejora de tesis (mapa con ubicación real vs. aproximada) sin comprometerte a llenarlas desde ya.
+
+---
+
+## 1. Modelo de identidad de tres capas
+
+### 1.1 Por qué NO reutilizar `usuarios`/`rol` para clientes
+Un cliente no es un "rol con permisos reducidos" — es una entidad de negocio distinta (tiene `cedula`, `id_cliente`, facturación asociada) que nunca debe poder navegar `configuracion`, `roles`, ni ningún módulo del backoffice, ni por accidente de una fila mal marcada en `rol_modulo_pagina`. Mezclarlos sería un error de modelado con implicación de seguridad real: un bug de permisos podría filtrar acceso administrativo a un cliente. Separar por tabla es la barrera de aislamiento más simple y auditable.
+
+### 1.2 Tabla nueva: `clientes_credenciales`
+```
+id_credencial   INT PK AUTO_INCREMENT
+id_cliente      INT NOT NULL, FK -> clientes.id_cliente, UNIQUE (1 cuenta por cliente)
+username        VARCHAR(50) NOT NULL UNIQUE   -- por defecto = cédula, editable
+password        VARCHAR(255) NOT NULL          -- hash (password_hash(), ver nota seguridad abajo)
+correo_recuperacion VARCHAR(80) NULL
+estado          ENUM('activa','suspendida') DEFAULT 'activa'
+creado_en       TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+ultimo_acceso   DATETIME NULL
+```
+
+**Nota de seguridad que corrige deuda técnica existente:** hoy tu tabla `usuarios` (staff) guarda `password` **en texto plano** (`login.php` compara `$userRow['password'] !== $password` directo). Para `clientes_credenciales`, que es la superficie de ataque más expuesta por naturaleza (miles de clientes vs. un puñado de operadores), implementaremos `password_hash()`/`password_verify()` desde el día uno. Aprovecharemos la migración para además corregir `usuarios` al mismo estándar — te lo marco como tarea de Fase 1, no de esta tabla nueva.
+
+### 1.3 Sesión de cliente: extender `sesiones`, no duplicarla
+En vez de crear una tabla `sesiones_cliente` paralela (que reintroduciría el mismo antipatrón de duplicación que acabamos de eliminar en Fase 1), extiendo la tabla `sesiones` existente con un discriminador:
+
+```
+sesiones
+  id_sesion       INT PK AUTO_INCREMENT
+  token           VARCHAR(64) UNIQUE
+  tipo_usuario    ENUM('staff','cliente') NOT NULL DEFAULT 'staff'   -- NUEVO
+  id_referencia   INT NOT NULL   -- id_usuario si staff, id_credencial si cliente
+  creado_en       TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  expira_en       DATETIME NOT NULL
+```
+
+`auth_state.php` y `login.php` se bifurcan internamente según `tipo_usuario`, pero **el mecanismo de token (header `X-Session-Token` + fallback query string) se reutiliza tal cual** — ya está probado, funciona, y no hay razón de ingeniería para reinventarlo para el portal.
+
+### 1.4 Endpoints nuevos del portal de cliente
+- `login_cliente.php` → valida contra `clientes_credenciales`, emite token con `tipo_usuario='cliente'`
+- `cliente_estado_cuenta.php` → `GET`, requiere token de cliente, devuelve `facturas` + `pagos` **solo del `id_cliente` dueño del token** (nunca acepta un `id_cliente` del query string — se resuelve server-side desde el token, para que un cliente no pueda pedir el estado de cuenta de otro cambiando un parámetro)
+- `cliente_pago_registrar.php` → `POST`, inserta en `pagos` con `estado='pendiente'` — nunca valida el pago (esa autoridad sigue siendo exclusiva del staff en el módulo Finanzas del backoffice)
+
+### 1.5 `portal_cliente.php` deja de ser mockup
+Se reescribe como vista real: login → fetch de estado de cuenta → formulario de pago conectado a `cliente_pago_registrar.php`. `router.php` mantiene el mapeo `/cliente` → este archivo, sin cambios de enrutamiento.
+
+---
+
+## 2. Esquema consolidado — Punto 6 (decisiones ya cerradas)
+
+| # | Tabla | Acción | Detalle |
+|---|---|---|---|
+| 6.1 | `roles`, `permissions`, `role_permission`, `user_role`, `permisos`, `rm_permiso`, `user` | **DROP** | Sistema B completo + `roles_admin.php`, `api/roles.php`, `api/permissions.php`, `api/role_permissions.php`, `api/clientes_listar.php`, `includes/auth.php`, `migrations/001_create_rbac_tables.sql` |
+| 6.1 | `direcciones` | **DROP** | Denormalizada en `servicios.direccion_texto` + `servicios.latitud_instalacion`/`longitud_instalacion` (nullable) |
+| 6.2 | `sesiones` | **Formalizar + extender** | Con `tipo_usuario`/`id_referencia` (sección 1.3) |
+| 6.2 | `olts.codigo`, `servicios.id_naps` + `fk_srv_nap`, `tickets` (estado VARCHAR, FKs nullable) | **Formalizar en dump** | Ya viven vía ALTER dinámico, pasan a ser DDL nativo |
+| 6.3 | `equipos` | **Mantener + activar** | Inventario manual (sección de análisis previo), `api_equipos.php` nuevo. `UNIQUE(id_naps, num_puerto_nap)` según fijamos arriba |
+| 6.3 | `planes` | **Activar** | CRUD real (`api_planes.php`) + selector en formulario de cliente/servicio |
+| 6.3 | `notificaciones` | **Activar** | Bandeja interna staff, disparada por: factura próxima a vencer, ticket sin respuesta > N días |
+| 6.3 | `logs` | **Activar** | Interceptor en: login (ambos tipos), eliminar cliente, cambio de permisos de rol, validación de pago |
+| 6.4a | `facturas` | **Crear** | Obligación de cobro, ver estructura sección 3 |
+| 6.4b | `pagos` | **Reestructurar** | Se añade `id_factura` FK nullable, ver sección 3 |
+| 6.4c | `contratos` | **Crear** | Acoplado a `servicios`, ver sección 3 |
+
+---
+
+## 3. DDL de las entidades financieras y de contrato (definición cerrada)
+
+```sql
+-- FACTURAS: la obligación
+CREATE TABLE facturas (
+  id_factura        INT AUTO_INCREMENT PRIMARY KEY,
+  id_servicio       INT NOT NULL,
+  periodo           VARCHAR(7) NOT NULL,           -- '2026-07'
+  monto             DECIMAL(10,2) NOT NULL,
+  fecha_emision     DATE NOT NULL,
+  fecha_vencimiento DATE NOT NULL,
+  estado            ENUM('pendiente','pagada','parcial','vencida','anulada') DEFAULT 'pendiente',
+  creado_en         TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_factura_servicio FOREIGN KEY (id_servicio) REFERENCES servicios(id_servicio)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- PAGOS: el evento (reestructura de la tabla actual del dump)
+CREATE TABLE pagos (
+  id_pago             INT AUTO_INCREMENT PRIMARY KEY,
+  id_factura          INT NULL,                    -- nullable: pago a cuenta sin factura previa
+  id_cliente          INT NOT NULL,
+  id_servicio         INT NOT NULL,
+  monto               DECIMAL(10,2) NOT NULL,
+  fecha_pago          DATETIME NOT NULL,
+  metodo_pago         ENUM('transferencia','pago_movil','zelle','efectivo') NULL,
+  referencia_bancaria VARCHAR(255) NULL,
+  estado              ENUM('pendiente','validado','rechazado') DEFAULT 'pendiente',
+  fecha_validacion    DATETIME NULL,
+  id_usuario_valido   INT NULL,                     -- staff que validó (FK usuarios)
+  origen              ENUM('portal_cliente','backoffice') DEFAULT 'backoffice',  -- trazabilidad de quién originó el registro
+  CONSTRAINT fk_pago_factura   FOREIGN KEY (id_factura) REFERENCES facturas(id_factura),
+  CONSTRAINT fk_pago_cliente   FOREIGN KEY (id_cliente) REFERENCES clientes(id_cliente),
+  CONSTRAINT fk_pago_servicio  FOREIGN KEY (id_servicio) REFERENCES servicios(id_servicio),
+  CONSTRAINT fk_pago_usuario   FOREIGN KEY (id_usuario_valido) REFERENCES usuarios(id_usuario)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- CONTRATOS
+CREATE TABLE contratos (
+  id_contrato    INT AUTO_INCREMENT PRIMARY KEY,
+  id_servicio    INT NOT NULL,
+  fecha_inicio   DATE NOT NULL,
+  fecha_fin      DATE NULL,                         -- NULL = indefinido
+  tipo_contrato  ENUM('indefinido','plazo_fijo','promocional') DEFAULT 'indefinido',
+  estado         ENUM('vigente','vencido','rescindido') DEFAULT 'vigente',
+  observaciones  TEXT NULL,
+  creado_en      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_contrato_servicio FOREIGN KEY (id_servicio) REFERENCES servicios(id_servicio)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+```
+
+Añadí `origen` a `pagos` respecto a lo que habíamos hablado — es un campo de trazabilidad barato que responde de inmediato "¿este pago lo registró el cliente desde el portal o un operador manualmente?", dato que un jurado de tesis valorará como evidencia de integración real entre los dos sistemas.
+
+---
+
+## 4. RBAC — extensión de módulos para Finanzas y Portal
+
+Nuevo módulo en `modulos`: `Finanzas` (id_modulo siguiente disponible). Nuevas páginas en `paginas`: `Facturación` (`facturas`), `Pagos` (`pagos`), `Planes` (`planes`), `Contratos` (`contratos`), `Notificaciones` (`notificaciones`). Se asignan por defecto a `id_rol=1` (Administrador) en `rol_modulo_pagina`; tú decides desde el propio módulo de Configuración si el Operador también las ve.
+
+El permiso `finanzas.validar` para transición de estado de `pagos` **no se modela como fila nueva en `rol_modulo_pagina`** (ese sistema controla visibilidad de vistas, no acciones granulares dentro de una vista) — se resuelve en `api_pagos.php` verificando `roleId === 1` de forma explícita, igual que ya haces hoy con `isAdminRole()` en `app.js` para el módulo Configuración. Consistencia con el patrón existente, sin inventar un cuarto sistema de permisos.
+
+---
+
+## 5. Fases de ejecución (orden de dependencia técnica)
+
+**Fase 0 — Congelar esquema real.** Nuevo `bd_redytelca.sql` único que incluye: todo lo formalizado en 6.2, las tablas nuevas de la sección 3, `clientes_credenciales`, y `sesiones` extendida. Elimina del dump las 7 tablas muertas de 6.1 y `direcciones`. Este archivo se vuelve la única fuente de verdad — se elimina la auto-reparación (`ensureColumn`/`ensureInfraSchema`) repetida en 6 archivos, quedando solo como salvaguarda mínima, no como mecanismo primario.
+
+**Fase 1 — Purga de código muerto y corrección de seguridad.** Borrado físico de los 7 archivos del Sistema B + `roles_admin.php`. Migración de `usuarios.password` a `password_hash()` (con script de migración one-time para las contraseñas en texto plano existentes).
+
+**Fase 2 — Módulo Finanzas en backoffice.** `api_facturas.php`, `api_pagos.php` (reestructurado), `api_planes.php`, `api_contratos.php`. Vistas nuevas en `index.html`/`app.js` siguiendo exactamente el patrón visual y de paginación que ya usas en NAPs/Tickets (modal + tabla + `renderXPage()`).
+
+**Fase 3 — Inventario de equipos.** `api_equipos.php` + vista en `index.html` bajo el módulo Infraestructura ya existente, junto a Nodos/OLTs/NAPs.
+
+**Fase 4 — Notificaciones y auditoría.** `api_notificaciones.php` (bandeja) + interceptor de `logs` en los puntos críticos listados en la sección 2.
+
+**Fase 5 — Portal de cliente real.** `clientes_credenciales`, `login_cliente.php`, `cliente_estado_cuenta.php`, `cliente_pago_registrar.php`, reescritura de `portal_cliente.php`.
+
+**Fase 6 — Corrección de dashboard.** Reemplazo de las fórmulas simuladas (`ticketsAbiertos = 18 + (totalClientes % 5) - 2`, `servicePercent` artificial) por `COUNT()`/`SUM()` reales contra `facturas`/`pagos`/`tickets`, ahora que existen datos reales que agregar.
+
+---
+
+## 6. Lo que necesito de ti para arrancar Fase 0
+
+Con este plan cerrado, solo quedan dos micro-confirmaciones operativas (no arquitectónicas) antes de que te entregue el DDL completo del nuevo `bd_redytelca.sql`:
+
+1. ¿El `username` de `clientes_credenciales` debe ser exactamente la cédula (sin prefijo `V-`/`E-`) o prefieres que el sistema genere un username separado (ej. `correo` o un código autogenerado)?
+2. Para la migración de `usuarios.password` a hash: ¿tienes actualmente más de un usuario staff registrado en producción, o es solo `admin`? Si es solo `admin`, el script de migración es trivial (un `UPDATE` directo); si hay varios, necesito saber cuántos para diseñar el script de migración en lote correctamente.
+
+Con esas dos respuestas emito el DDL íntegro de Fase 0 como archivo completo, listo para reemplazar tu `bd_redytelca.sql` actual.
+
+
+--------------------
+
+diagrama de uso
+
+Aquí tienes el contenido del diagrama de casos de uso transcrito a texto:
+
+## **Sistema Centralizado de Gestión - RedyTelca**
+
+### **Actores**
+
+* **Personal Administrativo**
+* **Técnico de Red**
+
+----------------------------------------------------
+
+### **Casos de Uso**
+
+**Relacionados con el Personal Administrativo:**
+
+* Registrar Cliente
+* Modificar Perfil de Cliente
+* Gestionar Contratos y Planes
+* Registrar Transacción de Pago
+* *Incluye:* Vincular Pago a Contrato
+
+
+* Generar Reporte de Transacciones (Auditoría)
+
+**Relacionados con el Técnico de Red:**
+
+* Registrar Terminal OLT
+* Registrar Caja NAP
+* Seguimiento Geolocalizado de Equipos
+* Actualizar Estado Técnico de Red
+
+
+
+
+------------
+# SYSTEM PROMPT: ARQUITECTO DE SOFTWARE Y AUDITOR DE CÓDIGO SENIOR
+
+## 1. PROPÓSITO Y ROL
+Actuarás como un Arquitecto de Software Senior y Auditor de Código de Élite. Tu objetivo único es refactorizar y corregir la plataforma web actual basándote EXCLUSIVAMENTE en las observaciones del profesor, garantizando la continuidad operativa del sistema y la coherencia absoluta con el código existente. Queda estrictamente prohibido generar código genérico, "estándar" o soluciones superficiales para salir del paso.
+
+## 2. REGLA DE ORO: FIDELIDAD ABSOLUTA AL DOMINIO DEL CÓDIGO (ZERO-ASSUMPTION)
+* **Mapeo de Base de Datos y Variables:** Debes auditar minuciosamente el volcado de la plataforma y la base de datos provista. Si una tabla se llama `rol` (en singular) y la tabla intermedia se llama `rolespremisos` (con su tipografía exacta), DEBES mantener esos nombres exactos en cada consulta SQL, ORM, controlador o vista. No asumas nomenclaturas estandarizadas (como "roles" o "role_permission").
+* **Impacto de Cambios:** Si por una corrección obligatoria del profesor es estrictamente necesario alterar el nombre de una variable, función o entidad, debes identificar y modificar TODOS los archivos afectados en la arquitectura para evitar rupturas por acoplamiento. Si no es necesario, no toques la nomenclatura original.
+* **Análisis Previo:** Antes de escribir una sola línea de código, analiza el impacto mecánico y estructural que el cambio tendrá en el ecosistema del proyecto.
+
+## 3. PROTOCOLO DE ENTREGABLES (CÓDIGO COMPLETO)
+* **Prohibición de Snippets:** Queda estrictamente prohibido entregar fragmentos de código, bloques con comentarios del tipo `// ... resto del código aquí ...` o secciones aisladas. No sé dónde ubicar los pedazos sueltos.
+* **Archivos Integrales:** Cada solución, corrección o refactorización debe ser entregada en forma de **archivo completo de principio a fin**. Debo ser capaz de copiar todo tu output, pegarlo en mi IDE reemplazando el archivo anterior, y que este funcione de inmediato.
+* **Documentación de Cambios:** Al final del archivo, incluye un bloque de comentarios breve o un desglose en Markdown explicando el 'porqué' mecánico del cambio y qué corrección específica del profesor está solventando.
+
+## 4. FLUJO DE TRABAJO EN CADA INTERACCIÓN
+1. **Fase de Análisis:** Analiza las correcciones del profesor que te proporcionaré frente al volcado del código actual que ya posees.
+2. **Fase de Verificación de Variables:** Cruza las variables de tu propuesta con el diccionario de datos real del proyecto (tablas, modelos, rutas).
+3. **Fase de Emisión:** Genera los archivos completos modificados estructuralmente pero manada el contenido en el propio chat solo para copiar y pegar no hagas tu en alrchivo para descargar.
+
+
+----------------
+
+ya aplique la fase 0 la bd que me pasaste y la fase 1, analiza a ver si esta todo correcto, ojo tambien justo luego de hacer ambas especificamente luego de la fase 0, entro en el modulo clientes y me sale este error;
+
+No se pudo conectar con el servidor de clientes.
+
+Error listando clientes: SQLSTATE[42S02]: Base table or view not found: 1146 Table 'bd_redytelca.direcciones' doesn't exist
+
+Reintentar
+
+analiza para ver que suscede, y cuando se solcuione me dices para ver si esta listo para continuar con las fase 2
